@@ -91,7 +91,7 @@ adata = anndata.concat(adatas)
 ```
 
 ```{python}
-# coarse filtering to remove amount of data
+# coarse filtering, proper QC is done later
 sc.pp.filter_cells(adata, min_genes=100)
 ```
 
@@ -108,11 +108,11 @@ obs.set_index("samples")
 ```
 
 ```{python}
-tmp_obs =adata.obs.join(obs.set_index("samples"), on="samples", how="left", sort=True)
+tmp_obs = adata.obs.join(obs.set_index("samples"), on="samples", how="left", sort=True)
 ```
 
 ```{python}
-adata.obs=tmp_obs
+adata.obs = tmp_obs
 ```
 
 ```{python}
@@ -122,6 +122,8 @@ adata.obs.loc[:, ["samples", "patient", "facs_purity_cd56"]].drop_duplicates()
 ```{python}
 adata.shape
 ```
+
+## Write output file
 
 ```{python}
 adata.write(output_file, compression="lzf")

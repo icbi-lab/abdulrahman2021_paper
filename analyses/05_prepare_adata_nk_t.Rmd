@@ -15,6 +15,15 @@ jupyter:
     name: conda-env-.conda-vanderburg_scanpy-py
 ---
 
+# NK/T-cell compartment
+
+In this notebook, we will
+ * extract the NK/T-cell compartment
+ * Perform unsupervised clustering using the Leiden-algorithm
+ * Annotate more fine-grained cell-types
+ * Perform sub-clustering of the cell-types
+
+
 # Input data and configuration
 
 ```{python tags=c("parameters")}
@@ -32,24 +41,16 @@ import pandas as pd
 import scanpy as sc
 import numpy as np
 from matplotlib import pyplot as plt
-from collections import OrderedDict
-import os
 import sys
-import gc
+import os
 
 sys.path.append("lib")
 sys.path.append("../lib")
 
-from jupytertools import setwd, fix_logging, display
+from jupytertools import fix_logging, display
 
 from operator import or_
 from functools import reduce
-from multiprocessing import Pool
-import seaborn as sns
-from plotnine import ggplot, aes
-import plotnine as n
-import scipy.stats as stats
-import itertools
 
 fix_logging(sc.settings)
 ```
@@ -80,19 +81,20 @@ def pca_precomputed(adata, key, **kwargs):
         # CSV does not preserver floating point numbers perfectly. 
         adata.obsm["X_pca"] = pd.read_pickle(pca_file).values
     except IOError:
-        # assert False, "should use pre-computed version. "
+        assert False, "should use pre-computed version. "
         sc.tl.pca(adata, svd_solver="arpack", **kwargs)
         pd.DataFrame(adata.obsm["X_pca"]).to_pickle(pca_file)
 ```
 
-# Analysis of T and NK cells
+## Extract NK and T-cells
 
 ```{python}
 adata = adata[adata.obs["cell_type"].isin(["T cell", "NK cell"]), :].copy()
 ```
 
 ### Exclude TCR genes
-...as they drive batch effects. Their expression should not be relevant for cell-sutype clusters. 
+As in a preliminary analysis, they turned out to be dominant DE genes when comparing clusters. 
+In the transcriptomics analysis, we are not interested in the effects of T-cell receptor genes. 
 
 ```{python}
 prefixes = ["TRAV", "TRBV", "TRBJ", "TRAJ", "TRBD"]
@@ -119,9 +121,7 @@ adata.shape
 np.sum(adata.var_names.str.startswith("TRAV"))
 ```
 
-```{python}
-sc.pl.pca_variance_ratio(adata)
-```
+## Cell-type annotation
 
 ```{python}
 random_state = 1
@@ -272,7 +272,7 @@ sc.pl.umap(
 )
 ```
 
-## Do clustering for all cell types individually
+## Perform sub-clustering for all cell types individually
 
 ```{python}
 adatas = dict()
@@ -290,7 +290,7 @@ for ct in adata.obs["cell_type"].unique():
     adatas[ct] = tmp_adata
 ```
 
-## Write output adata.h5ad
+## Store results
 
 ```{python}
 for ct, tmp_adata in adatas.items():
@@ -306,17 +306,4 @@ sc.pl.umap(adata, color=["cluster", "cell_type"])
 ```{python}
 adata.write_h5ad(output_file, compression="lzf")
 adata.obs.to_csv(output_file_obs, sep="\t")
-```
-
-## Write out the norm counts to text format, since loading into R from anndata failed. 
-
-```{python}
-norm_counts = pd.DataFrame(np.expm1(adata.X.T).todense())
-norm_counts.columns = adata.obs_names
-norm_counts["gene_symbols"] = adata.var_names
-norm_counts.set_index("gene_symbols", inplace=True)
-```
-
-```{python}
-norm_counts.to_csv(output_file_norm_counts, sep="\t", chunksize=100000)
 ```

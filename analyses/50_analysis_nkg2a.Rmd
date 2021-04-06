@@ -12,6 +12,17 @@ jupyter:
     name: conda-env-.conda-vanderburg_edger-py
 ---
 
+# NKG2a+/- CD8+ T-cells
+
+In this notebook, we will
+
+ * define NKG2a (KLRC1) positive and negative clusters of CD8+ T-cells
+ * Prepare R objects for differential expression analysis with edgeR
+ * Generate plots with marker genes of interest
+
+
+## Input data
+
 ```{python}
 import scanpy as sc
 from matplotlib import colors, rcParams
@@ -42,7 +53,7 @@ library(edgeR)
 
 ```{python tags=c("parameters")}
 input_file = "../results/05_prepare_adata_nk_t/adata.h5ad"
-output_dir = "../tmp/"
+output_dir = "tmp/"
 ```
 
 ```{python}
@@ -68,33 +79,25 @@ adata_de.obs["nkg2a_status"] = [
     "pos" if clus in ["T CD8+ 3", "T CD8+ 5", "T CD8+ 10"] else "neg"
     for clus in adata_de.obs["cluster"]
 ]
-adata_de.obs["nkg2a_status2"] = [
-    "pos"
-    if clus in ["T CD8+ 3", "T CD8+ 7", "T CD8+ 5", "T CD8+ 9", "T CD8+ 10"]
-    else "neg"
-    for clus in adata_de.obs["cluster"]
-]
-adata_de.obs["nkg2a_status_expr"] = [
-    "pos" if expr > 0.5 else "neg"
-    for expr in adata_de.X[:, adata_de.var_names == "KLRC1"].todense().A1
-]
 ```
 
 ```{python}
 sc.pl.umap(
     adata_de,
-    color=["KLRC1", "nkg2a_status", "nkg2a_status2", "nkg2a_status_expr"],
+    color=["KLRC1", "nkg2a_status"],
     size=10,
 )
 ```
 
 ```{python}
 obs = adata_de.obs.loc[
-    :, ["nkg2a_status", "nkg2a_status2", "nkg2a_status_expr", "mt_frac", "n_genes"]
+    :, ["nkg2a_status", "mt_frac", "n_genes"]
 ]
 gene_symbols = adata_de.var_names
 counts = adata_de.X.T.toarray()
 ```
+
+## Prepare R objects for edgeR
 
 ```{python}
 # %Rpush counts
@@ -134,8 +137,6 @@ gen_nkg2a = function(column, filename) {
 r(
     """
 gen_nkg2a("nkg2a_status", "de_nkg2a_status.rda")
-gen_nkg2a("nkg2a_status2", "de_nkg2a_status2.rda")
-gen_nkg2a("nkg2a_status_expr", "de_nkg2a_status_expr.rda")
 """
 )
 ```
@@ -213,8 +214,4 @@ sc.pl.umap(
     save="_nkg2a_2.pdf",
     size=20,
 )
-```
-
-```{python}
-
 ```

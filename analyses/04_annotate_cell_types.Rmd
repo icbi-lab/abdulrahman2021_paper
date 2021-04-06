@@ -12,8 +12,15 @@ jupyter:
     name: conda-env-.conda-vanderburg_scanpy-py
 ---
 
-# Input data and configuration
+# Coarse annotation of cell-types
 
+In this notebook, we will
+ * Perform unsupervised Leiden clustering
+ * Annotate major cell-types
+ * Compare the cell-type annotations with FACS measurements
+
+
+## Input data
 
 ```{python tags=c("parameters", "hide_input")}
 input_file = "../results/03_correct_data/adata.h5ad"
@@ -27,18 +34,14 @@ import pandas as pd
 import scanpy as sc
 import numpy as np
 from matplotlib import pyplot as plt
-import os
 import sys
-import gc
-import warnings
+import os
 
 sys.path.append("lib")
 sys.path.append("../lib")
-from jupytertools import setwd, fix_logging, display
+from jupytertools import fix_logging, display
 
 fix_logging(sc.settings)
-from multiprocessing import Pool
-import seaborn as sns
 from plotnine import ggplot, aes
 import plotnine as n
 import scipy.stats as stats
@@ -53,15 +56,10 @@ markers = pd.read_csv(os.path.join(table_dir, "cell_type_markers.csv"))
 adata = sc.read_h5ad(input_file)
 ```
 
-```{python}
-sc.pl.pca_variance_ratio(adata)
-```
+## Leiden clustering
 
 ```{python}
 random_state = 42
-```
-
-```{python}
 sc.pp.neighbors(adata, n_pcs=20, random_state=random_state)
 sc.tl.umap(adata, random_state=random_state)
 sc.tl.leiden(adata, resolution=2, random_state=random_state)
@@ -74,7 +72,7 @@ sc.pl.umap(
 )
 ```
 
-# Visualize cell-type markers
+## Visualize cell-type markers
 
 ```{python include=FALSE}
 cell_types = np.unique(markers["cell_type"])
@@ -112,8 +110,6 @@ annotation = {
 ```
 
 
-# Results
-
 ```{python include=FALSE}
 annot_dict = {str(c): ct for ct, clusters in annotation.items() for c in clusters}
 ```
@@ -124,6 +120,8 @@ adata.obs["cell_type_unknown"] = [
     "known" if ct != "unknown" else ct for ct in adata.obs["cell_type"]
 ]
 ```
+
+## Results
 
 ```{python}
 sc.pl.umap(adata, color=["cell_type_unknown", "cell_type"])
@@ -147,7 +145,7 @@ type_per_sample = (
 type_per_sample
 ```
 
-## Cell-type distribution per sample
+### Cell-type distribution per sample
 ```{python echo=FALSE}
 (
     ggplot(type_per_sample, aes(x="samples", y="frac_cells", fill="cell_type"))
@@ -184,7 +182,7 @@ cell_type_fractions = (
 display(cell_type_fractions, n=50)
 ```
 
-## Compare annotations with FACS markers
+### Compare annotations with FACS markers
 
 
 ```{python echo=FALSE}
@@ -215,12 +213,8 @@ ax.set_xlabel("%CD56")
 ax.set_ylabel("%NK cells")
 ```
 
-# Save output
+## Save output
 
 ```{python}
 adata.write(output_file, compression="lzf")
-```
-
-```{python}
-
 ```

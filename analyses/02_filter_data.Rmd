@@ -22,13 +22,13 @@ The purpose of this Notebook is to
 
 ## Input data and configuration
 
-```{python tags=c("parameters", "hide_input")}
+```{python tags=c("parameters")}
 input_file = "../results/01_process_data/adata.h5ad"
 output_file = "tmp/adata.h5ad"
 table_dir = "../tables"
 ```
 
-```{python include=FALSE}
+```{python}
 # %load_ext autoreload
 # %autoreload 2
 
@@ -49,7 +49,7 @@ from jupytertools import *
 fix_logging(sc.settings)
 ```
 
-```{python include=FALSE}
+```{python}
 mito_genes = pd.read_csv(os.path.join(table_dir, "mitochondrial_genes.tsv"), sep="\t")[
     "Gene name"
 ].values
@@ -67,7 +67,7 @@ adata = sc.read_h5ad(input_file)
 print(adata)
 ```
 
-```{python include=FALSE}
+```{python}
 def compute_quality_metrics(adata):
     tmp_mito = [g for g in mito_genes if g in adata.var_names]
     adata.obs["mt_frac"] = np.sum(adata[:, tmp_mito].X, axis=1) / np.sum(
@@ -94,7 +94,7 @@ MIN_CELLS = 50
 DOUBLET_THRES = 0.4
 ```
 
-```{python include=FALSE}
+```{python}
 assert adata.var_names.is_unique
 ```
 
@@ -286,7 +286,7 @@ plt.show()
 ```
 
 
-## IR-based filtering
+## Immune-receptor-based filtering
 
 We leverate TCR receptor sequencing data to call putative doublets. Cells with more than one TCR-beta or more than two TCR-alpha chains are removed. 
 
@@ -318,10 +318,9 @@ print_dim(adata)
 ir.pl.group_abundance(adata, groupby="chain_pairing", target_col="samples")
 ```
 
-# visualize confounders
-Additional we perform clustering using the Leiden algorithm (Traag et al.).
+# UMAP plot by covariates
 
-```{python include=FALSE}
+```{python}
 ## Normalize (for visualization only, we will save the raw counts!)
 # sc.pp.filter_genes(adata, min_cells=1)
 adata_vis = adata.copy()
@@ -336,7 +335,7 @@ sc.pp.neighbors(adata_vis, n_neighbors=10, n_pcs=40)
 sc.tl.umap(adata_vis)
 ```
 
-```{python include=FALSE}
+```{python}
 sc.tl.leiden(adata_vis)
 ```
 

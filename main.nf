@@ -93,8 +93,8 @@ process p02_filter_data {
 // }
 
 
-process p03_correct_data {
-    def id = "03_correct_data"
+process p03_normalize {
+    def id = "03_normalize"
     container "containers/vanderburg_scanpy.sif"
     cpus = 16
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
@@ -169,16 +169,7 @@ process p05_prepare_adata_t_nk {
         file 'input_adata.h5ad' from annotate_cell_types_adata
 
     output:
-        file "adata.h5ad" into prepare_adata_t_nk,
-           prepare_adata_t_nk_1,
-           prepare_adata_t_nk_2,
-           prepare_adata_t_nk_3,
-           prepare_adata_t_nk_4,
-           prepare_adata_t_nk_5,
-           prepare_adata_t_nk_6
-        file "adata_obs.tsv" into prepare_adata_t_nk_obs,
-           prepare_adata_t_nk_obs_2
-        file "norm_counts.tsv" into prepare_adata_t_nk_norm_counts
+        file "adata.h5ad" into prepare_adata_t_nk
         file "${id}.html" into prepare_adata_t_nk_html
     """
     reportsrender notebook.Rmd \
@@ -204,7 +195,7 @@ process p50_analysis_nkg2a {
 
     input:
         file 'notebook.Rmd' from Channel.fromPath("analyses/${id}.Rmd")
-        file 'input_adata.h5ad' from prepare_adata_t_nk_5
+        file 'input_adata.h5ad' from prepare_adata_t_nk
 
     output:
         file "${id}.zip" into nkg2a_figures
@@ -265,7 +256,7 @@ process p52_analysis_nkg2a_de {
         ${id}.html \
         --cpus=${task.cpus} \
         --params="de_dir='.'"
-    zip ${id}.zip *.xlsx figures/*.pdf
+    python -m zipfile -c ${id}.zip *.xlsx figures/*.pdf
     """
 }
 
