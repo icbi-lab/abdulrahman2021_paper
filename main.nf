@@ -216,7 +216,8 @@ process p50_analysis_nkg2a {
         --engine=papermill \
         --cpus=${task.cpus} \
         --params="input_file=input_adata.h5ad output_dir=."
-    zip ${id}.zip figures/*.pdf
+    # use python, zip not available in container
+    python -m zipfile -c ${id}.zip figures/*.pdf
     """
 }
 

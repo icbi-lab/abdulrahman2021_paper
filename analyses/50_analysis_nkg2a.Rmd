@@ -17,23 +17,32 @@ import scanpy as sc
 from matplotlib import colors, rcParams
 import matplotlib.pyplot as plt
 import re
+
 sc.settings.set_figure_params(dpi_save=600, figsize=(4, 4), vector_friendly=True)
 import anndata2ri
+from rpy2.robjects import r
+```
+
+```{python}
+# %load_ext rpy2.ipython
 ```
 
 ```{python}
 anndata2ri.activate()
-# %load_ext rpy2.ipython
 ```
 
-```{r}
+```{python}
+_ = r(
+    """
 library(dplyr)
 library(edgeR)
+"""
+)
 ```
 
 ```{python tags=c("parameters")}
 input_file = "../results/05_prepare_adata_nk_t/adata.h5ad"
-output_dir = "../results/50_analysis_nkg2a/"
+output_dir = "../tmp/"
 ```
 
 ```{python}
@@ -55,27 +64,57 @@ sc.pl.umap(adata_de, color="cluster")
 ```
 
 ```{python}
-adata_de.obs["nkg2a_status"] = ["pos" if clus in ["T CD8+ 3", "T CD8+ 5", "T CD8+ 10"] else "neg" for clus in adata_de.obs["cluster"]]
-adata_de.obs["nkg2a_status2"] = ["pos" if clus in ["T CD8+ 3", "T CD8+ 7", "T CD8+ 5", "T CD8+ 9", "T CD8+ 10"] else "neg" for clus in adata_de.obs["cluster"]]
-adata_de.obs["nkg2a_status_expr"] = ["pos" if expr > .5 else "neg" for expr in adata_de.X[:, adata_de.var_names == "KLRC1"].todense().A1]
+adata_de.obs["nkg2a_status"] = [
+    "pos" if clus in ["T CD8+ 3", "T CD8+ 5", "T CD8+ 10"] else "neg"
+    for clus in adata_de.obs["cluster"]
+]
+adata_de.obs["nkg2a_status2"] = [
+    "pos"
+    if clus in ["T CD8+ 3", "T CD8+ 7", "T CD8+ 5", "T CD8+ 9", "T CD8+ 10"]
+    else "neg"
+    for clus in adata_de.obs["cluster"]
+]
+adata_de.obs["nkg2a_status_expr"] = [
+    "pos" if expr > 0.5 else "neg"
+    for expr in adata_de.X[:, adata_de.var_names == "KLRC1"].todense().A1
+]
 ```
 
 ```{python}
-sc.pl.umap(adata_de, color=["KLRC1", "nkg2a_status", "nkg2a_status2", "nkg2a_status_expr"], size=10)
+sc.pl.umap(
+    adata_de,
+    color=["KLRC1", "nkg2a_status", "nkg2a_status2", "nkg2a_status_expr"],
+    size=10,
+)
 ```
 
 ```{python}
-obs = adata_de.obs.loc[:, ["nkg2a_status", "nkg2a_status2", "nkg2a_status_expr", "mt_frac", "n_genes"]]
+obs = adata_de.obs.loc[
+    :, ["nkg2a_status", "nkg2a_status2", "nkg2a_status_expr", "mt_frac", "n_genes"]
+]
 gene_symbols = adata_de.var_names
 counts = adata_de.X.T.toarray()
 ```
 
-```{r magic_args="-i counts -i gene_symbols -i obs"}
-rownames(counts) = gene_symbols
-colnames(counts) = rownames(obs)
+```{python}
+# %Rpush counts
+# %Rpush gene_symbols
+# %Rpush obs
+# %Rpush output_dir
 ```
 
-```{r magic_args="-i output_dir"}
+```{python}
+_ = r(
+    """
+rownames(counts) = gene_symbols
+colnames(counts) = rownames(obs)
+"""
+)
+```
+
+```{python}
+r(
+    """
 gen_nkg2a = function(column, filename) {
     # naming convention, there needs to be tmp_obs and tmp_counts for the downstream script. 
     tmp_obs = obs
@@ -87,12 +126,18 @@ gen_nkg2a = function(column, filename) {
     print(head(contrasts))
     save(tmp_obs, tmp_counts, design, contrasts, file=file.path(output_dir, filename), compress=FALSE)
 }
+"""
+)
 ```
 
-```{r}
+```{python}
+r(
+    """
 gen_nkg2a("nkg2a_status", "de_nkg2a_status.rda")
 gen_nkg2a("nkg2a_status2", "de_nkg2a_status2.rda")
 gen_nkg2a("nkg2a_status_expr", "de_nkg2a_status_expr.rda")
+"""
+)
 ```
 
 ## Dotplots and UMAP plots
