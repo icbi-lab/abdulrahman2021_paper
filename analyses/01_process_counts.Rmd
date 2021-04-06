@@ -1,5 +1,4 @@
 ---
-title: Process counts
 jupyter:
   jupytext:
     text_representation:

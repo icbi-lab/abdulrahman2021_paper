@@ -1,5 +1,4 @@
 ---
-title: Filter data
 jupyter:
   jupytext:
     text_representation:

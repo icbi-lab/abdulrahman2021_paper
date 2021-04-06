@@ -1,5 +1,4 @@
 ---
-title: Analysis T cells (Transcriptomcis)
 jupyter:
   jupytext:
     cell_metadata_filter: tags,jupyter
@@ -30,8 +29,6 @@ In this notebook, we will
 # get default parameters the papermill way.
 input_file = "../results/04_annotate_cell_types/adata.h5ad"
 output_file = "tmp/data.h5ad"
-output_file_obs = "tmp/adata_obs.tsv"
-output_file_norm_counts = "tmp/norm_counts.tsv"
 results_dir = "tmp"
 table_dir = "../tables"
 ```
@@ -305,5 +302,4 @@ sc.pl.umap(adata, color=["cluster", "cell_type"])
 
 ```{python}
 adata.write_h5ad(output_file, compression="lzf")
-adata.obs.to_csv(output_file_obs, sep="\t")
 ```

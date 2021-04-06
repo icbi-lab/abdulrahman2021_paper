@@ -23,11 +23,8 @@ process p01_process_data {
         file "${id}.html" into process_data_html
 
     """
-    reportsrender notebook.Rmd \
-        ${id}.html \
-        --engine=papermill \
-        --cpus=${task.cpus} \
-        --params="sample_sheet=sample_sheet.csv output_file=adata.h5ad data_dir=data n_cpus=${task.cpus}"
+    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
+       "-r sample_sheet sample_sheet.csv -r output_file adata.h5ad -r data_dir data -r n_cpus ${task.cpus}"
     """
 }
 
@@ -51,11 +48,8 @@ process p02_filter_data {
         file "${id}.html" into filter_data_html
 
     """
-    reportsrender notebook.Rmd \
-        ${id}.html \
-        --engine=papermill \
-        --cpus=${task.cpus} \
-        --params="input_file=input_adata.h5ad output_file=adata.h5ad table_dir=tables"
+    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
+       "-r input_file input_adata.h5ad -r output_file adata.h5ad -r table_dir tables"
     """
 }
 
@@ -113,14 +107,8 @@ process p03_normalize {
         file "${id}.html" into correct_data_html
 
     """
-    reportsrender notebook.Rmd \
-        ${id}.html \
-        --cpus=${task.cpus} \
-        --engine=papermill \
-        --params="input_file=input_adata.h5ad \
-                  output_file=adata.h5ad \
-                  tables_dir=tables \
-                  doublet_file=is_doublet.npy"
+    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
+       "-r input_file input_adata.h5ad -r output_file adata.h5ad -r tables_dir tables -r doublet_file is_doublet.npy"
     """
 }
 
@@ -144,11 +132,8 @@ process p04_annotate_cell_types {
         file "${id}.html" into annotate_cell_types_html
 
     """
-    reportsrender notebook.Rmd \
-        ${id}.html \
-        --engine=papermill \
-        --cpus=${task.cpus} \
-        --params="input_file=input_adata.h5ad output_file=adata.h5ad table_dir=tables"
+    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
+       "-r input_file input_adata.h5ad -r output_file adata.h5ad -r table_dir tables"
     """
 
 }
@@ -172,17 +157,8 @@ process p05_prepare_adata_t_nk {
         file "adata.h5ad" into prepare_adata_t_nk
         file "${id}.html" into prepare_adata_t_nk_html
     """
-    reportsrender notebook.Rmd \
-        ${id}.html \
-        --engine=papermill \
-        --cpus=${task.cpus} \
-        --params="input_file=input_adata.h5ad \
-                  output_file=adata.h5ad \
-                  output_file_obs=adata_obs.tsv \
-                  output_file_norm_counts=norm_counts.tsv \
-                  cpus=${task.cpus} \
-                  table_dir=tables \
-                  results_dir=."
+    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
+       "-r input_file input_adata.h5ad -r output_file adata.h5ad -r table_dir tables -r cpus ${task.cpus} -r results_dir ."
     """
 }
 
@@ -202,11 +178,8 @@ process p50_analysis_nkg2a {
         file "${id}.html" into nkg2a_html
         file "*.rda" into nkg2a_de_analysis_rda
     """
-    reportsrender notebook.Rmd \
-        ${id}.html \
-        --engine=papermill \
-        --cpus=${task.cpus} \
-        --params="input_file=input_adata.h5ad output_dir=."
+    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
+       "-r input_file input_adata.h5ad -r output_dir ."
     # use python, zip not available in container
     python -m zipfile -c ${id}.zip figures/*.pdf
     """
@@ -259,8 +232,6 @@ process p52_analysis_nkg2a_de {
     python -m zipfile -c ${id}.zip *.xlsx figures/*.pdf
     """
 }
-
-
 
 
 process deploy {
