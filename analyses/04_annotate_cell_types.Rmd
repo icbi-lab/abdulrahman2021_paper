@@ -1,0 +1,226 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.10.0
+  kernelspec:
+    display_name: Python [conda env:.conda-vanderburg_scanpy]
+    language: python
+    name: conda-env-.conda-vanderburg_scanpy-py
+---
+
+# Input data and configuration
+
+
+```{python tags=c("parameters", "hide_input")}
+input_file = "../results/03_correct_data/adata.h5ad"
+output_file = "tmp/adata_cell_types.h5ad"
+table_dir = "../tables"
+```
+
+
+```{python include=FALSE}
+import pandas as pd
+import scanpy as sc
+import numpy as np
+from matplotlib import pyplot as plt
+import os
+import sys
+import gc
+import warnings
+
+sys.path.append("lib")
+sys.path.append("../lib")
+from jupytertools import setwd, fix_logging, display
+
+fix_logging(sc.settings)
+from multiprocessing import Pool
+import seaborn as sns
+from plotnine import ggplot, aes
+import plotnine as n
+import scipy.stats as stats
+```
+
+
+```{python}
+markers = pd.read_csv(os.path.join(table_dir, "cell_type_markers.csv"))
+```
+
+```{python}
+adata = sc.read_h5ad(input_file)
+```
+
+```{python}
+sc.pl.pca_variance_ratio(adata)
+```
+
+```{python}
+random_state = 42
+```
+
+```{python}
+sc.pp.neighbors(adata, n_pcs=20, random_state=random_state)
+sc.tl.umap(adata, random_state=random_state)
+sc.tl.leiden(adata, resolution=2, random_state=random_state)
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(14, 10))
+sc.pl.umap(
+    adata, color="leiden", ax=ax, legend_loc="on data", size=20, legend_fontoutline=3
+)
+```
+
+# Visualize cell-type markers
+
+```{python include=FALSE}
+cell_types = np.unique(markers["cell_type"])
+```
+
+```{python}
+for ct in cell_types:
+    marker_genes = markers.loc[markers["cell_type"] == ct, "gene_identifier"]
+    sc.pl.umap(
+        adata, color=marker_genes, title=["{}: {}".format(ct, g) for g in marker_genes]
+    )
+```
+
+## Assign cell types
+```{python}
+fig, ax = plt.subplots(figsize=(14, 10))
+sc.pl.umap(
+    adata, legend_loc="on data", color="leiden", ax=ax, size=20, legend_fontoutline=3
+)
+```
+
+Assign clusters to cell types using the following mapping:
+
+```{python}
+annotation = {
+    "B cell": [17, 4, 1, 28, 6, 7, 19, 8],
+    "CAF": [27],
+    "Endothelial cell": [21],
+    "Mast cell": [32],
+    "NK cell": [0, 18, 31, 26],
+    "T cell": [2, 9, 20, 14, 24, 3, 10, 16, 12, 11, 15, 30, 5, 13, 25],
+    "myeloid": [22],
+    "pDC": [33],
+}
+```
+
+
+# Results
+
+```{python include=FALSE}
+annot_dict = {str(c): ct for ct, clusters in annotation.items() for c in clusters}
+```
+
+```{python include=FALSE}
+adata.obs["cell_type"] = [annot_dict.get(c, "unknown") for c in adata.obs["leiden"]]
+adata.obs["cell_type_unknown"] = [
+    "known" if ct != "unknown" else ct for ct in adata.obs["cell_type"]
+]
+```
+
+```{python}
+sc.pl.umap(adata, color=["cell_type_unknown", "cell_type"])
+```
+
+```{python}
+display(
+    adata.obs.groupby("cell_type")[["samples"]].count().sort_values("samples"), n=50
+)
+```
+
+```{python include=FALSE}
+# fractions by sample
+type_per_sample = (
+    adata.obs.groupby(["cell_type", "samples"])
+    .size()
+    .reset_index(name="n_cells")
+    .merge(adata.obs.groupby("samples").size().reset_index(name="n_total_cells"))
+    .assign(frac_cells=lambda x: x["n_cells"] / x["n_total_cells"])
+)
+type_per_sample
+```
+
+## Cell-type distribution per sample
+```{python echo=FALSE}
+(
+    ggplot(type_per_sample, aes(x="samples", y="frac_cells", fill="cell_type"))
+    + n.geom_bar(stat="identity")
+    + n.scale_fill_brewer(type="qual", palette="Paired")
+    + n.theme(
+        subplots_adjust={"right": 0.4},
+        axis_text_x=n.element_text(angle=90, vjust=1, hjust=0.5),
+    )
+)
+```
+
+```{python include=FALSE}
+# because of https://github.com/pandas-dev/pandas/issues/27519
+def t_cell_frac(x):
+    return np.sum(x == "T cell") / len(x)
+
+
+def nk_cell_frac(x):
+    return np.sum(x == "NK cell") / len(x)
+
+
+cell_type_fractions = (
+    adata.obs.groupby(["samples", "facs_purity_cd3", "facs_purity_cd56"])
+    .agg(
+        frac_t_cell=("cell_type", t_cell_frac), frac_nk_cell=("cell_type", nk_cell_frac)
+    )
+    .dropna()
+    .reset_index()
+)
+```
+
+```{python}
+display(cell_type_fractions, n=50)
+```
+
+## Compare annotations with FACS markers
+
+
+```{python echo=FALSE}
+x = cell_type_fractions["facs_purity_cd3"]
+y = cell_type_fractions["frac_t_cell"]
+r, r_p = stats.pearsonr(x, y)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
+fig, ax = plt.subplots()
+ax.plot(x, y, "o")
+ax.plot(np.array([0, 1]), slope * np.array([0, 1]) + intercept, color="black")
+ax.text(x=0, y=1, s="r={:.2f}, p={:.3f}".format(r, r_p))
+ax.set_title("T cells: FACS vs. single cell")
+ax.set_xlabel("%CD3")
+ax.set_ylabel("%T cells")
+```
+
+```{python echo=FALSE}
+x = cell_type_fractions["facs_purity_cd56"]
+y = cell_type_fractions["frac_nk_cell"]
+r, r_p = stats.pearsonr(x, y)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
+fig, ax = plt.subplots()
+ax.plot(x, y, "o")
+ax.plot(np.array([0, 0.6]), slope * np.array([0, 0.6]) + intercept, color="black")
+ax.text(x=0, y=0.4, s="r={:.2f}, p={:.3f}".format(r, r_p))
+ax.set_title("NK cells: FACS vs. single cell")
+ax.set_xlabel("%CD56")
+ax.set_ylabel("%NK cells")
+```
+
+# Save output
+
+```{python}
+adata.write(output_file, compression="lzf")
+```
+
+```{python}
+
+```

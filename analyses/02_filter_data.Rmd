@@ -1,0 +1,364 @@
+---
+title: Filter data
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.10.0
+  kernelspec:
+    display_name: Python [conda env:.conda-vanderburg_scanpy]
+    language: python
+    name: conda-env-.conda-vanderburg_scanpy-py
+---
+
+# Quality control (QC) and filtering
+
+The purpose of this Notebook is to
+
+* check the quality of the data
+* filter out cells that don't match the quality criteria.
+
+## Input data and configuration
+
+```{python tags=c("parameters", "hide_input")}
+input_file = "../results/01_process_data/adata.h5ad"
+output_file = "tmp/adata.h5ad"
+table_dir = "../tables"
+```
+
+```{python include=FALSE}
+# %load_ext autoreload
+# %autoreload 2
+
+import numpy as np
+import scanpy as sc
+import pandas as pd
+from matplotlib import pyplot as plt
+import seaborn as sns
+import os
+import scirpy as ir
+
+import sys
+
+sys.path.extend(("lib", "../lib"))
+
+from jupytertools import *
+
+fix_logging(sc.settings)
+```
+
+```{python include=FALSE}
+mito_genes = pd.read_csv(os.path.join(table_dir, "mitochondrial_genes.tsv"), sep="\t")[
+    "Gene name"
+].values
+biomart = pd.read_csv(os.path.join(table_dir, "biomart.tsv"), sep="\t")
+ribo_genes = pd.read_csv(
+    os.path.join(table_dir, "ribosomal_genes.tsv"), sep="\t", comment="#"
+)["Approved symbol"].values
+```
+
+```{python read-data}
+adata = sc.read_h5ad(input_file)
+```
+
+```{python}
+print(adata)
+```
+
+```{python include=FALSE}
+def compute_quality_metrics(adata):
+    tmp_mito = [g for g in mito_genes if g in adata.var_names]
+    adata.obs["mt_frac"] = np.sum(adata[:, tmp_mito].X, axis=1) / np.sum(
+        adata.X, axis=1
+    )
+    adata.obs["n_counts"] = adata.X.sum(axis=1)
+    adata.obs["n_genes"] = (adata.X != 0).sum(axis=1)
+    adata.obs["rk_n_counts"] = adata.obs["n_counts"].rank(
+        ascending=False, method="first"
+    )
+    adata.obs["rk_n_genes"] = adata.obs["n_genes"].rank(ascending=False, method="first")
+    adata.obs["rk_mt_frac"] = adata.obs["mt_frac"].rank(ascending=True, method="first")
+```
+
+# Quality Metrics
+
+Quality control follows the new "Best practice" tutorial for single cell analysis [(Luecken & Theis 2019)](https://www.embopress.org/doi/full/10.15252/msb.20188746) and the accompanying [case study notebook](https://github.com/theislab/single-cell-tutorial/blob/master/latest_notebook/Case-study_Mouse-intestinal-epithelium_1906.ipynb).
+
+```{python}
+MIN_COUNTS = 2000
+MIN_GENES = 700
+MAX_MITO = 0.11
+MIN_CELLS = 50
+DOUBLET_THRES = 0.4
+```
+
+```{python include=FALSE}
+assert adata.var_names.is_unique
+```
+
+Coarse filtering to reduce amount of data:
+
+```{python results="hold"}
+sc.pp.filter_cells(adata, min_genes=100)
+compute_quality_metrics(adata)
+print_dim(adata)
+```
+
+```{python}
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4))
+sc.pl.violin(adata, "n_counts", groupby="samples", log=True, cut=0, ax=ax1, show=False)
+sc.pl.violin(adata, "mt_frac", groupby="samples", ax=ax2, show=False)
+ax1.set_title("Count depth (counts per barcode)")
+ax2.set_title("Mitochondrial fraction per barcode")
+fig.show()
+os.makedirs("./tmp", exist_ok=True)
+fig.savefig("./tmp/qc_dist_per_sample_before.png")
+```
+
+The sample quality looks sufficiently consistent, so that we apply global filtering cut-offs instead of per-sample filtering
+
+
+## Gene level filtering
+Filter genes that occur in less than MIN_CELLS of cells. Relates to the minimal expected cluster size.
+Given the number of cells, I expect the smallest cluster of interest to contain at least 50 cells.
+
+```{python results="hold"}
+sc.pp.filter_genes(adata, min_cells=MIN_CELLS)
+print_dim(adata)
+```
+
+## Ratio of counts to number of mitochondrial genes
+
+```{python}
+ax1 = sc.pl.scatter(
+    adata,
+    x="n_counts",
+    y="n_genes",
+    color="mt_frac",
+    title="detected genes vs. count depth",
+    show=False,
+)
+ax1.hlines(y=MIN_GENES, xmin=0, xmax=ax1.get_xlim()[1], linewidth=1, color="red")
+ax1.vlines(x=MIN_COUNTS, ymin=0, ymax=ax1.get_ylim()[1], linewidth=1, color="red")
+plt.show()
+
+ax2 = sc.pl.scatter(
+    adata[adata.obs["n_counts"] < 10000],
+    x="n_counts",
+    y="n_genes",
+    color="mt_frac",
+    title="detected genes vs. count depth (zoomed in)",
+    show=False,
+)
+ax2.hlines(y=MIN_GENES, xmin=0, xmax=ax2.get_xlim()[1], linewidth=1, color="red")
+ax2.vlines(x=MIN_COUNTS, ymin=0, ymax=ax2.get_ylim()[1], linewidth=1, color="red")
+plt.show()
+```
+
+
+## Count depth and detected genes
+```{python}
+ax1 = sns.distplot(adata.obs["n_genes"], kde=False, bins=60)
+ax1.set_title("Distribution: detected genes")
+ax1.vlines(x=MIN_GENES, color="red", linewidth=1, ymin=0, ymax=ax1.get_ylim()[1])
+plt.show()
+
+ax2 = sc.pl.scatter(
+    adata,
+    x="rk_n_genes",
+    y="n_genes",
+    color="mt_frac",
+    legend_loc="none",
+    title="Distribution: detected genes",
+    show=False,
+)
+ax2.hlines(y=MIN_GENES, color="red", linewidth=1, xmin=0, xmax=ax2.get_xlim()[1])
+plt.show()
+
+ax3 = sc.pl.scatter(
+    adata,
+    x="rk_n_counts",
+    y="n_counts",
+    color="mt_frac",
+    legend_loc="none",
+    title="Distribution: read counts",
+    show=False,
+)
+ax3.hlines(y=MIN_COUNTS, color="red", linewidth=1, xmin=0, xmax=ax3.get_xlim()[1])
+ax3.set_yscale("log")
+plt.show()
+```
+
+## Mitochondrial reads
+```{python}
+ax4 = sns.distplot(adata.obs["mt_frac"], kde=False, bins=60)
+ax4.set_title("Distribution: fraction mito reads")
+ax4.vlines(x=MAX_MITO, color="red", linewidth=1, ymin=0, ymax=ax4.get_ylim()[1])
+plt.show()
+
+ax5 = sc.pl.scatter(
+    adata,
+    x="rk_mt_frac",
+    y="mt_frac",
+    color="mt_frac",
+    show=False,
+    legend_loc="none",
+    title="Distribution: fraction mito reads",
+)
+ax5.hlines(y=MAX_MITO, color="red", linewidth=1, xmin=0, xmax=ax5.get_xlim()[1])
+plt.show()
+```
+
+# Apply filtering by quality metrics
+
+```{python}
+print_dim(adata)
+```
+
+Apply `MIN_GENES` threshold:
+
+```{python results="hold"}
+sc.pp.filter_cells(adata, min_genes=MIN_GENES)
+print_dim(adata)
+```
+
+Apply `MIN_COUNTS` threshold:
+
+```{python results="hold"}
+sc.pp.filter_cells(adata, min_counts=MIN_COUNTS)
+print_dim(adata)
+```
+
+Apply `MAX_MITO` threshold:
+
+```{python results="hold"}
+adata = adata[adata.obs["mt_frac"] < MAX_MITO, :]
+print_dim(adata)
+```
+
+### exclude ribosomal and mitochondrial genes
+Ribosomal genes were downloaded from https://www.genenames.org/data/genegroup/#!/group/1054
+
+```{python}
+adata = adata[:, ~adata.var_names.isin(np.append(mito_genes, ribo_genes))]
+print_dim(adata)
+```
+
+
+### QC plots after filtering
+
+```{python}
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4))
+sc.pl.violin(adata, "n_counts", groupby="samples", log=True, cut=0, ax=ax1, show=False)
+sc.pl.violin(adata, "mt_frac", groupby="samples", ax=ax2, show=False)
+ax1.set_title("Count depth (counts per barcode)")
+ax2.set_title("Mitochondrial fraction per barcode")
+fig.show()
+fig.savefig("./tmp/qc_dist_per_sample_after.png")
+```
+
+```{python}
+ax1 = sc.pl.scatter(
+    adata,
+    x="n_counts",
+    y="n_genes",
+    color="mt_frac",
+    title="detected genes vs. count depth",
+    show=False,
+)
+ax1.hlines(y=MIN_GENES, xmin=0, xmax=ax1.get_xlim()[1], linewidth=1, color="red")
+ax1.vlines(x=MIN_COUNTS, ymin=0, ymax=ax1.get_ylim()[1], linewidth=1, color="red")
+plt.show()
+
+ax2 = sc.pl.scatter(
+    adata[adata.obs["n_counts"] < 10000],
+    x="n_counts",
+    y="n_genes",
+    color="mt_frac",
+    title="detected genes vs. count depth (zoomed in)",
+    show=False,
+)
+ax2.hlines(y=MIN_GENES, xmin=0, xmax=ax2.get_xlim()[1], linewidth=1, color="red")
+ax2.vlines(x=MIN_COUNTS, ymin=0, ymax=ax2.get_ylim()[1], linewidth=1, color="red")
+plt.show()
+```
+
+
+## IR-based filtering
+
+We leverate TCR receptor sequencing data to call putative doublets. Cells with more than one TCR-beta or more than two TCR-alpha chains are removed. 
+
+```{python}
+ir.tl.chain_qc(adata)
+```
+
+```{python}
+ir.pl.group_abundance(adata, groupby="receptor_subtype", target_col="samples")
+```
+
+```{python}
+ir.pl.group_abundance(adata, groupby="chain_pairing", target_col="samples")
+```
+
+Remove multichain cells and extra VDJ (=beta) cells. 
+extra VJ (=alpha) is ok, as T-cells can have two alpha chains. 
+
+```{python}
+tcr_filter = adata.obs["chain_pairing"].isin(
+    ["multichain", "extra VDJ", "two full chains"]
+)
+print_dim(adata)
+adata = adata[~tcr_filter, :].copy()
+print_dim(adata)
+```
+
+```{python}
+ir.pl.group_abundance(adata, groupby="chain_pairing", target_col="samples")
+```
+
+# visualize confounders
+Additional we perform clustering using the Leiden algorithm (Traag et al.).
+
+```{python include=FALSE}
+## Normalize (for visualization only, we will save the raw counts!)
+# sc.pp.filter_genes(adata, min_cells=1)
+adata_vis = adata.copy()
+sc.pp.normalize_per_cell(adata_vis, counts_per_cell_after=1e4)
+sc.pp.log1p(adata_vis)
+sc.pp.filter_genes(adata_vis, min_cells=1)
+```
+
+```{python warning=FALSE, message=FALSE, results="hold"}
+sc.tl.pca(adata_vis, svd_solver="arpack")
+sc.pp.neighbors(adata_vis, n_neighbors=10, n_pcs=40)
+sc.tl.umap(adata_vis)
+```
+
+```{python include=FALSE}
+sc.tl.leiden(adata_vis)
+```
+
+```{python}
+sc.pl.umap(
+    adata_vis,
+    color=[
+        "n_genes",
+        "n_counts",
+        "mt_frac",
+        "samples",
+        "origin",
+        "leiden",
+        "chain_pairing",
+        "has_ir",
+    ],
+    ncols=2,
+)
+```
+
+# save result
+
+```{python write-results}
+adata.write(output_file, compression="lzf")
+```

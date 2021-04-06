@@ -1,0 +1,322 @@
+---
+title: Analysis T cells (Transcriptomcis)
+jupyter:
+  jupytext:
+    cell_metadata_filter: tags,jupyter
+    notebook_metadata_filter: ''
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.10.0
+  kernelspec:
+    display_name: Python [conda env:.conda-vanderburg_scanpy]
+    language: python
+    name: conda-env-.conda-vanderburg_scanpy-py
+---
+
+# Input data and configuration
+
+```{python tags=c("parameters")}
+# get default parameters the papermill way.
+input_file = "../results/04_annotate_cell_types/adata.h5ad"
+output_file = "tmp/data.h5ad"
+output_file_obs = "tmp/adata_obs.tsv"
+output_file_norm_counts = "tmp/norm_counts.tsv"
+results_dir = "tmp"
+table_dir = "../tables"
+```
+
+```{python}
+import pandas as pd
+import scanpy as sc
+import numpy as np
+from matplotlib import pyplot as plt
+from collections import OrderedDict
+import os
+import sys
+import gc
+
+sys.path.append("lib")
+sys.path.append("../lib")
+
+from jupytertools import setwd, fix_logging, display
+
+from operator import or_
+from functools import reduce
+from multiprocessing import Pool
+import seaborn as sns
+from plotnine import ggplot, aes
+import plotnine as n
+import scipy.stats as stats
+import itertools
+
+fix_logging(sc.settings)
+```
+
+```{python}
+markers = pd.read_csv(os.path.join(table_dir, "cell_type_markers.csv"))
+```
+
+```{python}
+cell_types = markers["cell_type"].unique()
+```
+
+```{python}
+adata = sc.read_h5ad(input_file)
+```
+
+```{python}
+sc.pl.umap(adata, color="cell_type")
+```
+
+```{python}
+# PCA turned out not to be entirely reproducible on different CPU architechtures.
+# For the sake of reproducibility of these notebooks, we load a pre-computed result
+# from the repository. If it doesn't exist, we compute it from scratch.
+def pca_precomputed(adata, key, **kwargs):
+    pca_file = os.path.join(table_dir, f"adata_pca_{key}.pkl.gz")
+    try:
+        # CSV does not preserver floating point numbers perfectly. 
+        adata.obsm["X_pca"] = pd.read_pickle(pca_file).values
+    except IOError:
+        # assert False, "should use pre-computed version. "
+        sc.tl.pca(adata, svd_solver="arpack", **kwargs)
+        pd.DataFrame(adata.obsm["X_pca"]).to_pickle(pca_file)
+```
+
+# Analysis of T and NK cells
+
+```{python}
+adata = adata[adata.obs["cell_type"].isin(["T cell", "NK cell"]), :].copy()
+```
+
+### Exclude TCR genes
+...as they drive batch effects. Their expression should not be relevant for cell-sutype clusters. 
+
+```{python}
+prefixes = ["TRAV", "TRBV", "TRBJ", "TRAJ", "TRBD"]
+exclude_genes = reduce(or_, [adata.var_names.str.startswith(x) for x in prefixes])
+```
+
+```{python}
+adata.var_names[exclude_genes]
+```
+
+```{python}
+adata.shape
+```
+
+```{python}
+adata = adata[:, ~exclude_genes].copy()
+```
+
+```{python}
+adata.shape
+```
+
+```{python}
+np.sum(adata.var_names.str.startswith("TRAV"))
+```
+
+```{python}
+sc.pl.pca_variance_ratio(adata)
+```
+
+```{python}
+random_state = 1
+sc.pp.neighbors(adata, random_state=random_state)
+sc.tl.umap(adata, random_state=random_state)
+```
+
+```{python}
+sc.tl.leiden(adata, resolution=3, random_state=42)
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(7, 5))
+sc.pl.umap(
+    adata, legend_loc="on data", color="leiden", ax=ax, size=20, legend_fontoutline=3
+)
+```
+
+```{python}
+for ct in cell_types:
+    if not "T cell" in ct and ct != "NK cell":
+        continue
+    marker_genes = markers.loc[markers["cell_type"] == ct, "gene_identifier"]
+    sc.pl.umap(
+        adata,
+        color=marker_genes,
+        title=["{}: {}".format(ct, g) for g in marker_genes],
+        size=15,
+    )
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(7, 5))
+sc.pl.umap(
+    adata, legend_loc="on data", color="leiden", ax=ax, size=20, legend_fontoutline=3
+)
+```
+
+```{python}
+annotation_t = {
+    "T CD4+": [],
+    # 27 is NK, but some of the cells are CD8
+    "T CD8+": [8, 0, 6, 20, 11, 29, 21, 22, 14, 27],
+    "T reg.": [13, 12],
+    "T other": [31],
+    "ambiguous": [24, 25, 26, 18],
+}
+```
+
+```{python}
+annot_dict = {str(c): ct for ct, clusters in annotation_t.items() for c in clusters}
+adata.obs["cell_type2"] = [
+    annot_dict.get(c, "T CD4+") if ct != "NK cell" else ct
+    for c, ct in zip(adata.obs["leiden"], adata.obs["cell_type"])
+]
+```
+
+```{python}
+sc.pl.umap(adata, color="cell_type2")
+```
+
+### re-annotate ambiguous clusters
+
+```{python}
+adata_ambiguous = adata[adata.obs["cell_type2"] == "ambiguous", :].copy()
+```
+
+```{python}
+sc.__version__
+```
+
+```{python}
+pca_precomputed(adata_ambiguous, "subcluster_ambiguous")
+sc.pp.neighbors(adata_ambiguous, n_neighbors=5)
+sc.tl.umap(adata_ambiguous)
+```
+
+```{python}
+sc.tl.leiden(adata_ambiguous, resolution=2)
+```
+
+```{python}
+sc.pl.umap(
+    adata_ambiguous, color=["leiden"], legend_loc="on data", legend_fontoutline=4
+)
+sc.pl.umap(adata_ambiguous, color=["CD8A", "CD8B", "FOXP3", "CD4", "n_counts"], ncols=3)
+```
+
+```{python}
+annotation_ambiguous = {
+    "T CD4+": [21, 14, 12, 2, 23, 11, 13, 8, 9, 17, 24, 0, 22, 10],
+    "T CD8+": [4, 18, 15, 26],
+    "T reg.": [6, 1, 5, 19, 25, 3, 16, 7],
+    "T other": [20],
+}
+```
+
+```{python}
+annot_dict = {
+    str(c): ct for ct, clusters in annotation_ambiguous.items() for c in clusters
+}
+adata_ambiguous.obs["cell_type3"] = [
+    annot_dict[c]
+    for c, ct in zip(adata_ambiguous.obs["leiden"], adata_ambiguous.obs["cell_type"])
+]
+```
+
+```{python}
+sc.pl.umap(adata_ambiguous, color="cell_type3")
+```
+
+### integrate annotation into main object
+
+```{python}
+# convert categorical to string
+adata.obs["cell_type2"] = [str(x) for x in adata.obs["cell_type2"]]
+adata.obs.loc[adata_ambiguous.obs_names, "cell_type2"] = adata_ambiguous.obs[
+    "cell_type3"
+]
+```
+
+```{python}
+adata.obs["cell_type"] = adata.obs["cell_type2"]
+del adata.obs["cell_type2"]
+```
+
+```{python}
+sc.pl.umap(
+    adata,
+    color=[
+        "samples",
+        "n_genes",
+        "mt_frac",
+        "has_ir",
+        "hpv_status",
+        "ir_status",
+        "chain_pairing",
+        "phase",
+        "leiden",
+        "CD4",
+        "FOXP3",
+        "CD8A",
+        "CD19",
+        "is_doublet",
+        "cell_type",
+    ],
+    ncols=3,
+)
+```
+
+## Do clustering for all cell types individually
+
+```{python}
+adatas = dict()
+resolutions = {"T CD4+": 1, "T CD8+": 1, "NK cell": 0.5, "T reg.": 0.5, "T other": 0.5}
+for ct in adata.obs["cell_type"].unique():
+    tmp_adata = adata[adata.obs["cell_type"] == ct, :].copy()
+    pca_precomputed(
+        tmp_adata,
+        f'subcluster_{ct.lower().replace(" ", "_").replace("+", "").replace(".", "")}',
+    )
+    sc.pp.neighbors(tmp_adata)
+    sc.tl.umap(tmp_adata)
+    sc.tl.leiden(tmp_adata, resolution=resolutions[ct])
+    sc.pl.umap(tmp_adata, color="leiden", title=ct)
+    adatas[ct] = tmp_adata
+```
+
+## Write output adata.h5ad
+
+```{python}
+for ct, tmp_adata in adatas.items():
+    adata.obs.loc[tmp_adata.obs.index, "cluster"] = [
+        "{} {}".format(ct, x) for x in tmp_adata.obs["leiden"]
+    ]
+```
+
+```{python}
+sc.pl.umap(adata, color=["cluster", "cell_type"])
+```
+
+```{python}
+adata.write_h5ad(output_file, compression="lzf")
+adata.obs.to_csv(output_file_obs, sep="\t")
+```
+
+## Write out the norm counts to text format, since loading into R from anndata failed. 
+
+```{python}
+norm_counts = pd.DataFrame(np.expm1(adata.X.T).todense())
+norm_counts.columns = adata.obs_names
+norm_counts["gene_symbols"] = adata.var_names
+norm_counts.set_index("gene_symbols", inplace=True)
+```
+
+```{python}
+norm_counts.to_csv(output_file_norm_counts, sep="\t", chunksize=100000)
+```

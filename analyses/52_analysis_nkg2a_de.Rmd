@@ -1,0 +1,60 @@
+---
+title: "NKG2a DE genes"
+output: html_document
+params: 
+  de_dir: "../results/51_run_de_nkg2a"
+---
+
+```{r, include=FALSE}
+library(conflicted)
+library(dplyr)
+conflict_prefer("filter", "dplyr")
+library(ggrepel)
+library(readr)
+library(EnhancedVolcano)
+library(ggplot2)
+```
+
+```{r, include=FALSE}
+de_res_files = Sys.glob(file.path(params$de_dir, "*.rda.res.tsv"))
+de_res = lapply(de_res_files, read_tsv)
+names(de_res) = lapply(de_res_files, function(x) { basename(x) %>% strsplit("\\.") %>% .[[1]] %>% .[1] })
+dir.create("figures", showWarnings = FALSE)
+```
+
+```{r, fig.width=8, fig.height=8, echo=FALSE}
+lapply(names(de_res), function(comparison) {
+  tmp_de_res = de_res[[comparison]]
+  FC_CUTOFF = 1
+  FDR_CUTOFF = 0.01
+  labelled_genes = c(
+    tmp_de_res %>% filter(abs(logFC) > FC_CUTOFF) %>% arrange(FDR) %>% pull(gene_symbol) %>% head(10),
+    "ENTPD1", "KLRC1", "DKK3", "HAVCR2", "PDCD1", "LAG3", "TIGIT"
+  )
+  
+  p = EnhancedVolcano(
+    tmp_de_res,
+    lab = tmp_de_res$gene_symbol,
+    x = "logFC",
+    y = "FDR",
+    title = comparison,
+    subtitle = NULL,
+    selectLab = labelled_genes,
+    drawConnectors = TRUE,
+    arrowheads = FALSE,
+    pCutoff = FDR_CUTOFF,
+    FCcutoff = FC_CUTOFF,
+    labSize = 4.5,
+    widthConnectors = .35,
+    lengthConnectors = 5,
+    colConnectors = "darkgrey",
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    cutoffLineCol = "darkgrey"
+  )
+  ggsave(paste0("figures/", comparison, ".pdf"), plot=p)
+  print(p)
+})
+
+
+```

@@ -1,0 +1,161 @@
+---
+title: Correct data
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.10.0
+  kernelspec:
+    display_name: Python [conda env:.conda-vanderburg_scanpy]
+    language: python
+    name: conda-env-.conda-vanderburg_scanpy-py
+---
+
+# Input data and configuration
+
+```{python tags=c("parameters", "hide_input")}
+input_file = "../results/02_filter_data/adata.h5ad"
+tables_dir = "../tables"
+output_file = "tmp/adata.h5ad"
+doublet_file = f"{tables_dir}/is_doublet.npy"
+```
+
+
+```{python include=FALSE}
+# %env OPENBLAS_NUM_THREADS=16
+# %env OMP_NUM_THREADS=16
+# %env MKL_NUM_THREADS=16
+# %env OMP_NUM_cpus=16
+# %env MKL_NUM_cpus=16
+# %env OPENBLAS_NUM_cpus=16
+import pandas as pd
+import scanpy as sc
+import numpy as np
+from matplotlib import pyplot as plt
+import os
+import sys
+import gc
+import warnings
+
+sys.path.append("lib")
+sys.path.append("../lib")
+from jupytertools import setwd, fix_logging, print_dim
+from scio import concatenate
+from scpp import norm_log
+
+fix_logging(sc.settings)
+from numba import NumbaWarning
+
+warnings.filterwarnings("ignore", category=NumbaWarning)
+```
+
+```{python}
+biomart = pd.read_csv(os.path.join(tables_dir, "biomart.tsv"), sep="\t")
+cell_cycle_regev = pd.read_csv(
+    os.path.join(tables_dir, "cell_cycle_regev.tsv"), sep="\t"
+)
+cell_cycle_regev = cell_cycle_regev[["hgnc_symbol", "phase"]].drop_duplicates()
+pca_file = os.path.join(tables_dir, "adata_pca.pkl.gz")
+```
+
+```{python load_adata, message=FALSE}
+adata = sc.read_h5ad(input_file)
+```
+
+```{python}
+is_doublet = np.load(doublet_file)
+```
+
+```{python}
+adata.obs["is_doublet"] = is_doublet
+```
+
+# Normalize and scale
+
+The `raw` data object will contain normalized, log-transformed values for visualiation.
+The original, raw (UMI) counts are stored in `adata.obsm["raw_counts"]`.
+
+While there are more sophisticated *countFactor normalization methods*, we stick to a simple CPM method here.
+
+```{python}
+norm_log(adata)
+sc.pp.pca(adata, svd_solver="arpack")
+```
+
+```{python}
+sc.pl.pca_variance_ratio(adata)
+```
+
+```{python}
+sc.pp.neighbors(adata, n_pcs=30)
+sc.tl.umap(adata)
+```
+
+## Add cell-cycle scores
+
+```{python}
+sc.tl.score_genes_cell_cycle(
+    adata,
+    s_genes=cell_cycle_regev.loc[
+        cell_cycle_regev["phase"] == "S", "hgnc_symbol"
+    ].values,
+    g2m_genes=cell_cycle_regev.loc[
+        cell_cycle_regev["phase"] == "G2M", "hgnc_symbol"
+    ].values,
+)
+```
+
+```{python}
+sc.pl.umap(
+    adata,
+    color=["samples", "n_genes", "n_counts", "is_doublet", "chain_pairing"],
+    ncols=3,
+)
+```
+
+```{python}
+print_dim(adata)
+adata = adata[~adata.obs["is_doublet"], :].copy()
+print_dim(adata)
+```
+
+### Compute highly variable genes
+
+```{python}
+sc.pp.highly_variable_genes(adata, flavor="cell_ranger", n_top_genes=6000)
+```
+
+```{python}
+# PCA turned out not to be entirely reproducible on different CPU architechtures.
+# For the sake of reproducibility of these notebooks, we load a pre-computed result
+# from the repository. If it doesn't exist, we compute it from scratch.
+try:
+    adata.obsm["X_pca"] = pd.read_pickle(pca_file).values 
+except IOError:
+    assert False, "should use pre-computed version. "
+    sc.tl.pca(adata, svd_solver="arpack")
+    pd.DataFrame(adata.obsm["X_pca"]).to_pickle(pca_file)
+```
+
+```{python}
+sc.pp.neighbors(adata, n_pcs=30)
+sc.tl.umap(adata)
+sc.tl.leiden(adata)
+```
+
+```{python}
+sc.pl.umap(
+    adata,
+    color=["samples", "n_genes", "n_counts", "chain_pairing"],
+)
+```
+
+```{python}
+adata.write(output_file, compression="lzf")
+```
+
+```{python}
+
+```

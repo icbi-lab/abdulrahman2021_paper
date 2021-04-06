@@ -1,0 +1,175 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.10.0
+  kernelspec:
+    display_name: Python [conda env:.conda-vanderburg_edger]
+    language: python
+    name: conda-env-.conda-vanderburg_edger-py
+---
+
+```{python}
+import scanpy as sc
+from matplotlib import colors, rcParams
+import matplotlib.pyplot as plt
+import re
+sc.settings.set_figure_params(dpi_save=600, figsize=(4, 4), vector_friendly=True)
+import anndata2ri
+```
+
+```{python}
+anndata2ri.activate()
+# %load_ext rpy2.ipython
+```
+
+```{r}
+library(dplyr)
+library(edgeR)
+```
+
+```{python tags=c("parameters")}
+input_file = "../results/05_prepare_adata_nk_t/adata.h5ad"
+output_dir = "../results/50_analysis_nkg2a/"
+```
+
+```{python}
+adata = sc.read_h5ad(input_file)
+```
+
+## Prepare for DE analysis (CD8+ NKG2a+ vs CD8+ NKG2a-)
+
+```{python}
+sc.pl.umap(adata, color=["cell_type", "cluster"])
+```
+
+```{python}
+adata_de = adata[adata.obs["cell_type"] == "T CD8+", :].copy()
+```
+
+```{python}
+sc.pl.umap(adata_de, color="cluster")
+```
+
+```{python}
+adata_de.obs["nkg2a_status"] = ["pos" if clus in ["T CD8+ 3", "T CD8+ 5", "T CD8+ 10"] else "neg" for clus in adata_de.obs["cluster"]]
+adata_de.obs["nkg2a_status2"] = ["pos" if clus in ["T CD8+ 3", "T CD8+ 7", "T CD8+ 5", "T CD8+ 9", "T CD8+ 10"] else "neg" for clus in adata_de.obs["cluster"]]
+adata_de.obs["nkg2a_status_expr"] = ["pos" if expr > .5 else "neg" for expr in adata_de.X[:, adata_de.var_names == "KLRC1"].todense().A1]
+```
+
+```{python}
+sc.pl.umap(adata_de, color=["KLRC1", "nkg2a_status", "nkg2a_status2", "nkg2a_status_expr"], size=10)
+```
+
+```{python}
+obs = adata_de.obs.loc[:, ["nkg2a_status", "nkg2a_status2", "nkg2a_status_expr", "mt_frac", "n_genes"]]
+gene_symbols = adata_de.var_names
+counts = adata_de.X.T.toarray()
+```
+
+```{r magic_args="-i counts -i gene_symbols -i obs"}
+rownames(counts) = gene_symbols
+colnames(counts) = rownames(obs)
+```
+
+```{r magic_args="-i output_dir"}
+gen_nkg2a = function(column, filename) {
+    # naming convention, there needs to be tmp_obs and tmp_counts for the downstream script. 
+    tmp_obs = obs
+    tmp_counts = counts
+    formula = paste0("~ 0 + ", column, " + n_genes + mt_frac")
+    contrast = paste0(column, "pos-", column, "neg")
+    design = model.matrix(as.formula(formula), data=tmp_obs)
+    contrasts = makeContrasts(contrasts=contrast, levels=colnames(design))
+    print(head(contrasts))
+    save(tmp_obs, tmp_counts, design, contrasts, file=file.path(output_dir, filename), compress=FALSE)
+}
+```
+
+```{r}
+gen_nkg2a("nkg2a_status", "de_nkg2a_status.rda")
+gen_nkg2a("nkg2a_status2", "de_nkg2a_status2.rda")
+gen_nkg2a("nkg2a_status_expr", "de_nkg2a_status_expr.rda")
+```
+
+## Dotplots and UMAP plots
+
+```{python}
+genes_of_interest = [
+    "KLRC1",
+    "HAVCR2",
+    "ENTPD1",
+    "LAG3",
+    "PDCD1",
+    "TIGIT",
+    "KLRC2",
+    "KLRK1",
+    "CD226",  # (DNAM-1),
+    "CD244",  # (2B4),
+    "IL2RB",  # (CD122),
+    "ITGA1",  # (CD49a)]
+]
+```
+
+```{python}
+genes_of_interest2 = ["CD4", "CD8A", "CD8B", "FOXP3", "CD3D", "CD3E", "CD3G", "NCAM1"]
+```
+
+```{python}
+sc.pl.dotplot(
+    adata,
+    var_names=genes_of_interest,
+    groupby="cluster",
+    swap_axes=True,
+    save="nkg2a.pdf",
+)
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(10, 10))
+sc.pl.umap(
+    adata,
+    color="cluster",
+    legend_loc="on data",
+    legend_fontoutline=3,
+    ax=ax,
+    size=80,
+    legend_fontsize=11,
+)
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(10, 10))
+sc.pl.umap(
+    adata, color="cell_type", legend_fontoutline=3, ax=ax, size=80, legend_fontsize=11
+)
+```
+
+```{python}
+sc.pl.umap(
+    adata,
+    color=genes_of_interest,
+    ncols=4,
+    color_map="YlOrRd",
+    save="_nkg2a.pdf",
+    size=20,
+)
+```
+
+```{python}
+sc.pl.umap(
+    adata,
+    color=genes_of_interest2,
+    ncols=4,
+    color_map="YlOrRd",
+    save="_nkg2a_2.pdf",
+    size=20,
+)
+```
+
+```{python}
+
+```

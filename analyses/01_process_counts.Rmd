@@ -1,0 +1,128 @@
+---
+title: Process counts
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.10.0
+  kernelspec:
+    display_name: Python [conda env:.conda-vanderburg_scanpy]
+    language: python
+    name: conda-env-.conda-vanderburg_scanpy-py
+---
+
+# Load data (TCR + counts)
+
+Load the cellranger outputs and store them as `h5ad`. 
+
+```{python}
+import scanpy as sc
+import scirpy as ir
+import anndata
+import pandas as pd
+import os
+import sys
+from multiprocessing import Pool
+import itertools
+```
+
+```{python tags=c("parameters")}
+sample_sheet = "../tables/vanderburg_01_samples.csv"
+output_file = "../results/01_process_data/adata.h5ad"
+data_dir = "../data"
+n_cpus = 16
+```
+
+```{python}
+obs = pd.read_csv(sample_sheet)
+```
+
+
+```{python}
+obs.set_index("samples")
+```
+
+```{python}
+dataset_samples = obs["samples"].to_numpy(copy=True)
+```
+
+
+```{python}
+dataset_samples.sort()
+dataset_samples
+```
+
+```{python}
+def load_sample(sample_id, data_dir):
+    filename_gex = os.path.join(
+        data_dir, f"cellranger/{sample_id[1:]}_GEX/outs/raw_feature_bc_matrix.h5"
+    )
+    filename_tcr = os.path.join(
+        data_dir, f"cellranger/{sample_id[1:]}_TCR/outs/filtered_contig_annotations.csv"
+    )
+    adata = sc.read_10x_h5(filename_gex, genome="GRCh38")
+    adata_tcr = ir.io.read_10x_vdj(filename_tcr)
+    adata.obs_names = [
+        "{}_{}".format(sample_id, barcode) for barcode in adata.obs_names
+    ]
+
+    adata_tcr.obs_names = [
+        "{}_{}".format(sample_id, barcode) for barcode in adata_tcr.obs_names
+    ]
+    duplicated = adata.var_names.duplicated()
+    print(
+        "Removing {} gene symbols because they are duplicated".format(sum(duplicated))
+    )
+    adata = adata[:, ~duplicated].copy()
+    ir.pp.merge_with_ir(adata, adata_tcr)
+    adata.obs["samples"] = sample_id
+    return adata
+```
+
+```{python}
+with Pool(int(n_cpus)) as p:
+    adatas = p.starmap(load_sample, zip(dataset_samples, itertools.repeat(data_dir)))
+```
+
+```{python}
+adata = anndata.concat(adatas)
+```
+
+```{python}
+# coarse filtering to remove amount of data
+sc.pp.filter_cells(adata, min_genes=100)
+```
+
+```{python}
+adata.obs["samples"]
+```
+
+```{python}
+obs
+```
+
+```{python}
+obs.set_index("samples")
+```
+
+```{python}
+tmp_obs =adata.obs.join(obs.set_index("samples"), on="samples", how="left", sort=True)
+```
+
+```{python}
+adata.obs=tmp_obs
+```
+
+```{python}
+adata.obs.loc[:, ["samples", "patient", "facs_purity_cd56"]].drop_duplicates()
+```
+
+```{python}
+adata.shape
+```
+
+```{python}
+adata.write(output_file, compression="lzf")
+```
