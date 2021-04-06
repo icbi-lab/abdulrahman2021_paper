@@ -1,0 +1,2 @@
+"id"	"min_genes"	"max_genes"	"max_frac_mito"	"doublet_threshold"
+"vanderburg_01"	300	4000	0.06	1

@@ -1,0 +1,14 @@
+"samples","patient","origin","replicate","dataset","tumor_type","platform","age","sex","hpv_status","ir_status","facs_purity_cd3","facs_purity_cd56"
+"H143","H143","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV-",,0.653,0.008
+"H149","H149","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR-",0.644,0.033
+"H160","H160","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR+",0.342,0.067
+"H176","H176","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR+",0.558,0.108
+"H182","H182","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR-",0.303,0.109
+"H185","H185","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR+",0.493,0.163
+"H188","H188","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR+",0.657,0.087
+"H205","H205","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV-",,0.485,0.028
+"H211","H211","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR-",0.382,0.029
+"H197","H197","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV-",,0.271,0.171
+"H208","H208","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR-",0.336,0.323
+"H68","H68","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR+",0.797,0.138
+"H141","H141","tumor_primary",1,"vanderburg_01","HNSC","10x_5p",,,"HPV16+","IR+",0.288,0.025
