@@ -1,0 +1,1018 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.10.0
+  kernelspec:
+    display_name: Python [conda env:.conda-vanderburg_scanpy]
+    language: python
+    name: conda-env-.conda-vanderburg_scanpy-py
+---
+
+```{python include=FALSE}
+# %load_ext autoreload
+# %autoreload 2
+import sys
+
+sys.path.insert(0, "/home/sturm/projects/2020/scirpy/")
+
+from glob import glob
+from multiprocessing import Pool
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import scanpy as sc
+import scanpy.external as sce
+import scirpy as ir
+from scipy import stats
+import anndata
+import warnings
+import os
+import re
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+sc.settings.verbosity = 0
+
+# suppress "storing XXX as categorical" warnings.
+anndata.logging.anndata_logger.setLevel("ERROR")
+```
+
+```{python tags=c("parameters")}
+input_file = "../results/05_prepare_adata_nk_t/adata.h5ad"
+output_dir = "./tmp"
+n_cpus = 32
+```
+
+```{python include=FALSE}
+n_cpus = int(n_cpus)
+os.makedirs(output_dir, exist_ok=True)
+```
+
+```{python include=FALSE}
+def natural_sort(l):
+    convert = lambda text: int(text) if text.isdigit() else text.lower()
+    alphanum_key = lambda key: [convert(c) for c in re.split("([0-9]+)", key)]
+    return sorted(l, key=alphanum_key)
+
+
+def define_public_clonotypes(
+    adata, clonotype_key, patient_key="patient", key_added="is_public"
+):
+    """Identify 'public' clonotypes based on the clonotype and patient annotation.
+
+    'public clonotypes' are clonotypes with identical/similar CDR3 sequences across patients."""
+    public_df = (
+        adata.obs.loc[:, [clonotype_key, patient_key]]
+        .groupby([clonotype_key, patient_key], observed=True)
+        .size()
+        .reset_index()
+        .groupby(clonotype_key)
+        .size()
+        .reset_index()
+    )
+    public_clonotypes = public_df.loc[public_df[0] > 1, clonotype_key]
+    result = pd.Categorical(
+        [
+            "public" if x else "private"
+            for x in adata.obs[clonotype_key].isin(public_clonotypes)
+        ],
+        categories=["public", "private"],
+    )
+    adata.obs[key_added] = result
+```
+
+```{python}
+adata = sc.read_h5ad(input_file)
+```
+
+# TCR analysis
+
+We make use of [scirpy](https://icbi-lab.github.io/scirpy/) to analyse scTCR-seq data. 
+
+
+## Quality control
+
+As a first step, we have a look at the "chain pairing" configuration, i.e
+how many CDR3 sequence have been detected per cell. 
+
+Here, 
+ * *Multichain* refers to cells with more than two pairs of T cell receptors. 
+ * *Orphan alpha/beta* refers to cells with either a single alpha or beta chain detected
+ * *Extra alpha/beta* refers to cells witha full pair, and, additionally a second alpha or beta chain. 
+ 
+Multi-chains have already been removed in a previous filtering step. 
+
+```{python tags=c("hide_input")}
+_ = ir.pl.group_abundance(adata, groupby="chain_pairing", target_col="patient")
+```
+
+```{python}
+sc.pl.umap(adata, color="chain_pairing")
+```
+
+### Subset to cells with TCR only
+
+ * remove cells that don't have (at least) one full pair of alpha/beta TCRs
+ * remove the NK cell clusters. 
+ 
+UMAP before removal: 
+
+```{python tags=c("hide_input")}
+sc.pl.umap(adata, color=["cluster", "cell_type"], legend_loc="on data")
+```
+
+```{python include=FALSE}
+adata.shape
+```
+
+```{python include=FALSE}
+adata = adata[
+    (adata.obs["has_ir"] == "True")
+    & (~adata.obs["chain_pairing"].str.startswith("orphan"))
+    & (adata.obs["cell_type"] != "NK cell"),
+    :,
+]
+adata._sanitize()
+```
+
+```{python include=FALSE}
+adata.shape
+```
+
+UMAP after removal: 
+
+```{python tags=c("hide_input")}
+sc.pl.umap(adata, color=["cluster", "cell_type"], legend_loc="on data")
+```
+
+## Define clonotypes and clonotype clusters
+
+ * We define *clonotypes* by their CDR3 nucleotide sequence identity (i.e. both the alpha and the beta CDR3 sequences need to match exactely) 
+ * We define *clonotype clusters* by their CDR3 amino acid sequence similarity. Some mismatches are allows, grouping 
+   TCRs which likely recognize the same antigen. 
+   
+For now, if a TCR has two alpha sequences, any of the two (plus the beta chain) needs
+to match an other cell to be considered a clonotype, or clonotype cluster, respectively
+
+```{python include=FALSE}
+# based on sequence identity
+ir.pp.ir_neighbors(adata, receptor_arms="all", dual_ir="any")
+```
+
+```{python include=FALSE}
+ir.tl.define_clonotypes(adata)
+```
+
+```{python include=FALSE}
+# based on sequence similarity
+ir.pp.ir_neighbors(
+    adata,
+    metric="alignment",
+    sequence="aa",
+    receptor_arms="all",
+    dual_ir="any",
+    cutoff=10,
+    n_jobs=n_cpus,
+)
+```
+
+```{python include=FALSE}
+ir.tl.define_clonotype_clusters(adata, sequence="aa", metric="alignment")
+```
+
+```{python include=FALSE}
+# ## store intermediate results ("cache")
+# adata.write_h5ad("./tmp/tmp_adata.h5ad")
+```
+
+```{python include=FALSE}
+# adata = sc.read_h5ad("./tmp/tmp_adata.h5ad")
+```
+
+## Analysis of clonotypes (as defined by nucleotide sequence identity) 
+
+ * clonotype network (colored by cell-types and patient) 
+ * public/private clonotypes
+ * clonal expansion 
+ * shannon entropy 
+
+
+### Clonotype network (by identity)
+The following plot visualizes the clonotypes. 
+Each "blob" represents a clonotype, each dot a cell. 
+
+Clonotypes of size 1 ("singletons" or "non-expanded" clonotypes) are excluded
+for a better overview. 
+
+```{python include=FALSE}
+ir.tl.clonotype_network(adata, min_size=2, layout="components")
+```
+
+```{python tags=c("hide_input")}
+_ = ir.pl.clonotype_network(
+    adata,
+    color=["patient", "cell_type"],
+    legend_loc="right margin",
+    edges=False,
+    size=80,
+    legend_fontoutline=3,
+)
+```
+
+<!-- #region tags=["remove_cell"] -->
+### Diagnostics of cell-type annotation
+<!-- #endregion -->
+
+```{python}
+adata.obs["clonotype"] = adata.obs["clonotype"].str.replace("_TCR", "")
+adata.obs["ct_cluster_aa_alignment"] = adata.obs["ct_cluster_aa_alignment"].str.replace(
+    "_TCR", ""
+)
+```
+
+```{python include=FALSE}
+_ = ir.pl.clonotype_network(
+    adata,
+    color=["clonotype"],
+    size=80,
+    legend_fontoutline=3,
+)
+```
+
+```{python include=FALSE}
+sc.pl.umap(adata, color=["cell_type"])
+sc.pl.umap(adata, color=["CD8A", "CD4"], cmap="inferno")
+```
+
+```{python include=FALSE}
+ct_of_interest = ["842", "7284", "7283"]
+sc.pl.umap(
+    adata,
+    color="clonotype",
+    groups=ct_of_interest,
+    size=[60 if x in ct_of_interest else 4 for x in adata.obs["clonotype"]],
+)
+```
+
+### public/private clonotypes
+There are no public clonotypes: 
+
+```{python tags=c("hide_input")}
+define_public_clonotypes(adata, "clonotype", "patient", key_added="is_public_clonotype")
+print(
+    f"Number of public clonotypes based on nucleotide sequence identity: {np.sum(adata.obs['is_public_clonotype'] == 'public')}"
+)
+```
+
+### clonal expansion by patient
+
+The left panel shows the clonal expansion by the **number of cells**, the right panel by the **number of clonotypes**. 
+I.e. if expansion is driven by a single, hyperexpanded clonotype, significant expansion will be visible in the left panel, 
+but not in the right one. 
+
+```{python include=FALSE}
+def plot_clonal_expansion(adata, groupby="patient", title_extra=None):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+
+    ir.pl.clonal_expansion(
+        adata,
+        groupby,
+        normalize=False,
+        ax=ax1,
+        style=None,
+    )
+    ir.pl.clonal_expansion(
+        adata, groupby, normalize=False, summarize_by="clonotype", ax=ax2, style=None
+    )
+    _ = ax2.set_ylabel("number of clonotypes")
+    _ = ax1.set_ylabel("number of cells")
+    title = f"Clonal expansion by {groupby}"
+    if title_extra is not None:
+        title += " " + title_extra
+    fig.suptitle(title)
+
+
+def plot_entropy_by_cell_type(adata, **kwargs):
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
+
+    ir.pl.alpha_diversity(adata, "patient", style=None, ax=ax1, **kwargs)
+    ir.pl.alpha_diversity(
+        adata[adata.obs["cell_type"] == "T CD8+", :],
+        "patient",
+        style=None,
+        ax=ax2,
+        **kwargs,
+    )
+    ir.pl.alpha_diversity(
+        adata[adata.obs["cell_type"].isin(("T CD4+", "T reg.")), :],
+        "patient",
+        style=None,
+        ax=ax3,
+        **kwargs,
+    )
+    ax1.set_title("all cells")
+    ax2.set_title("CD8+ T cells")
+    ax3.set_title("CD4+ T cells")
+    for ax in [ax1, ax2, ax3]:
+        ax.get_legend().remove()
+
+    _ = fig.suptitle("Normalized shannon diversity")
+
+
+def make_contingency_table(adata, col1, col2):
+    col1_cat = np.unique(adata.obs[col1].values)
+    col2_cat = np.unique(adata.obs[col2].values)
+    if len(col1_cat) != 2:
+        raise ValueError("Category1 != 2 items")
+    if len(col2_cat) != 2:
+        raise ValueError("Category1 != 2 items")
+    ct = pd.DataFrame(
+        np.array(
+            [
+                [
+                    np.sum(
+                        (adata.obs[col1] == col1_cat[0])
+                        & (adata.obs[col2] == col2_cat[0])
+                    ),
+                    np.sum(
+                        (adata.obs[col1] == col1_cat[0])
+                        & (adata.obs[col2] != col2_cat[0])
+                    ),
+                ],
+                [
+                    np.sum(
+                        (adata.obs[col1] != col1_cat[0])
+                        & (adata.obs[col2] == col2_cat[0])
+                    ),
+                    np.sum(
+                        (adata.obs[col1] != col1_cat[0])
+                        & (adata.obs[col2] != col2_cat[0])
+                    ),
+                ],
+            ]
+        )
+    )
+    ct.columns = col2_cat
+    ct.index = col1_cat
+    return ct
+
+
+def multi_group_abundance(adata, target_col, groupby=None, **kwargs):
+    """Plot multiple group abundance plots side-by-side.
+
+    target col is the same for all plots.
+    groupby is a list with multiple variables.
+    """
+    fig, axs = plt.subplots(1, len(groupby), figsize=(14, 4))
+    for group, ax in zip(groupby, axs):
+        ir.pl.group_abundance(adata, group, target_col, ax=ax, style=None, **kwargs)
+
+    for ax in axs[:-1]:
+        ax.get_legend().remove()
+    axs[-1].legend(bbox_to_anchor=(1.6, 1.05))
+
+    return fig, axs
+
+
+def export_alpha_diversity(adata, target_col="clonotype", out_dir="tmp"):
+    adata_cd4 = adata[adata.obs["cell_type"].isin(("T CD4+", "T reg.")), :]
+    adata_cd8 = adata[adata.obs["cell_type"] == "T CD8+", :]
+    by_patient = pd.concat(
+        [
+            ir.tl.alpha_diversity(
+                adata, groupby="patient", target_col=target_col, inplace=False
+            ),
+            ir.tl.alpha_diversity(
+                adata_cd8, groupby="patient", target_col=target_col, inplace=False
+            ),
+            ir.tl.alpha_diversity(
+                adata_cd4, groupby="patient", target_col=target_col, inplace=False
+            ),
+        ],
+        axis=1,
+    )
+    by_patient.columns = ["all cells", "CD8+ T cells", "CD4+ T cells"]
+    by_cluster = pd.concat(
+        [
+            ir.tl.alpha_diversity(
+                adata, groupby="cluster", target_col=target_col, inplace=False
+            ),
+            ir.tl.alpha_diversity(
+                adata_cd8, groupby="cluster", target_col=target_col, inplace=False
+            ),
+            ir.tl.alpha_diversity(
+                adata_cd4, groupby="cluster", target_col=target_col, inplace=False
+            ),
+        ],
+        axis=1,
+    )
+    by_cluster.columns = ["all cells", "CD8+ T cells", "CD4+ T cells"]
+    by_patient.to_csv(
+        out_dir + "/" + f"normalized_shannon_entropy_{target_col}_by_patient.tsv",
+        sep="\t",
+    )
+    by_cluster.to_csv(
+        out_dir + "/" + f"normalized_shannon_entropy_{target_col}_by_cluster.tsv",
+        sep="\t",
+    )
+```
+
+```{python tags=c("hide_input")}
+plot_clonal_expansion(adata)
+```
+
+```{python tags=c("hide_input")}
+plot_clonal_expansion(
+    adata[adata.obs["cell_type"] == "T CD8+", :], title_extra="(CD8+ T cells)"
+)
+```
+
+```{python tags=c("hide_input")}
+plot_clonal_expansion(
+    adata[adata.obs["cell_type"].isin(("T CD4+", "T reg.")), :],
+    title_extra="(CD4+ T cells)",
+)
+```
+
+### Shannon diversity (normalized)
+
+```{python tags=c("hide_input")}
+plot_entropy_by_cell_type(adata)
+```
+
+```{python}
+export_alpha_diversity(adata, "clonotype", out_dir=output_dir)
+```
+
+## Analysis of clonotype clusters (by amino acid sequence alignment) 
+
+ * clonotype network (colored by cell-types and patient) 
+ * public/private clonotypes
+     - by HPV/IR status
+ * convergent clonotypes
+     - by HPV/IR status
+     - by cell-type
+ * clonal expansion
+     - by HPV/IR status
+     - by cell-type
+ * shannon entropy 
+ * differential expression analysis of clonotype clusters
+ 
+### Notes and Limitations
+ * To test a statistical association between HPV/IR status and convergence, expansion etc. we build a contingency table of **cells** and apply Fisher's exact test. The limitation of this approach is that results can easily be biased by a single patient. Even highly statistically significant results need to be interpreted with caution and further validated. 
+ * An alternative would be to compute means per patient and compare between patients. This is more robust, but lacks statistical power due to the small number of patients. 
+ * During the analysis, we exclude the outlier patient `H143`. It is responsible for a majority of expanded and convergent cells. 
+
+
+## Clonotype network
+
+```{python include=FALSE}
+ir.tl.clonotype_network(
+    adata, min_size=2, layout="components", metric="alignment", sequence="aa"
+)
+```
+
+```{python tags=c("hide_input")}
+_ = ir.pl.clonotype_network(
+    adata,
+    color=["patient", "cell_type"],
+    legend_loc="right margin",
+    edges=False,
+    size=80,
+    legend_fontoutline=3,
+)
+```
+
+## Public/Private clonotypes
+Note that, based on nucleotide sequence identity, we did not find T cells with identical CDR3 sequences across patients. 
+Therefore, the clonotypes identified as public here, consist of different, but highly similar CDR3 amino acid sequences. 
+
+```{python include=FALSE}
+define_public_clonotypes(adata, "ct_cluster_aa_alignment", key_added="is_public")
+```
+
+```{python tags=c("hide_input")}
+_ = ir.pl.clonotype_network(
+    adata,
+    color=["is_public", "hpv_status"],
+    legend_loc="right margin",
+    edges=False,
+    size=80,
+    legend_fontoutline=3,
+)
+```
+
+### contingency tables of cells
+
+```{python tags=c("hide_input")}
+contingency_table = make_contingency_table(adata, "is_public", "hpv_status")
+contingency_table
+```
+
+```{python tags=c("hide_input")}
+_, p = stats.fisher_exact(contingency_table)
+print(f"Fisher's exact test of contingency table: p = {p:.4f}")
+```
+
+```{python tags=c("hide_input")}
+contingency_table = make_contingency_table(
+    adata[adata.obs["ir_status"] != "nan", :], "is_public", "ir_status"
+)
+contingency_table
+```
+
+```{python tags=c("hide_input")}
+_, p = stats.fisher_exact(contingency_table)
+print(f"Fisher's exact test of contingency table: p = {p:.4f}")
+```
+
+## convergent clonotypes
+
+We define a clonotype as convergent if multiple clonotypes with different nucleotide CDR3 sequences fall
+into the same "clonotype cluster", i.e. have similar amino acid sequences and likely recognize the same antigen. 
+
+This could be evidence of convergent evolution. See also [scirpy glossary](https://icbi-lab.github.io/scirpy/glossary.html#term-Convergent-evolution-of-clonotypes). 
+
+```{python include=FALSE}
+ir.tl.clonotype_convergence(
+    adata, key_coarse="ct_cluster_aa_alignment", key_fine="clonotype"
+)
+```
+
+```{python tags=c("hide_input")}
+_ = ir.pl.clonotype_network(
+    adata,
+    color=["is_convergent", "clonotype"],
+    legend_loc=["right margin", "none"],
+    edges=False,
+    size=80,
+    legend_fontoutline=3,
+    ncols=2,
+)
+```
+
+We observe convergence mostly among CD8+ T cells and among HPV- cells: 
+
+```{python tags=c("hide_input")}
+sc.pl.umap(
+    adata,
+    color="is_convergent",
+    groups=["convergent"],
+    size=[10 if x == "convergent" else 3 for x in adata.obs["is_convergent"]],
+)
+```
+
+```{python tags=c("hide_input")}
+fig, ax = multi_group_abundance(
+    adata, "is_convergent", ["cell_type", "hpv_status", "ir_status"], normalize=True
+)
+_ = fig.suptitle("clonotype convergence")
+```
+
+However, this seems mostly driven by Patient `H143`. 
+
+```{python tags=c("hide_input")}
+sc.pl.umap(adata, color=["hpv_status", "patient"])
+```
+
+### contingency tables and statistical tests (for CD8+ T cells) 
+
+```{python tags=c("hide_input")}
+contingency_table = make_contingency_table(
+    adata[(adata.obs["cell_type"] == "T CD8+"), :],
+    "is_convergent",
+    "hpv_status",
+)
+contingency_table
+```
+
+```{python tags=c("hide_input")}
+_, p = stats.fisher_exact(contingency_table)
+print(f"Fisher's exact test of contingency table: p = {p:.4f}")
+```
+
+```{python tags=c("hide_input")}
+contingency_table = make_contingency_table(
+    adata[
+        (adata.obs["cell_type"] == "T CD8+") & (adata.obs["ir_status"] != "nan"),
+        :,
+    ],
+    "is_convergent",
+    "ir_status",
+)
+contingency_table
+```
+
+```{python tags=c("hide_input")}
+_, p = stats.fisher_exact(contingency_table)
+print(f"Fisher's exact test of contingency table: p = {p:.4f}")
+```
+
+### Summary
+ * There tend to be more convergent clonotypes in CD8+ T cells
+ * Patient H143 (which is HPV-) consists of mostly convergent clonotypes
+ * All contingency tables are biased due to the over-representation of single patients
+
+
+## Clonal expansion
+
+We define "expanded" clonotypes as clonotypes with two (`=2`) or more than two (`>= 3`)
+cells. 
+
+```{python include=FALSE}
+ir.tl.clonal_expansion(adata, target_col="ct_cluster_aa_alignment")
+adata.obs["is_expanded"] = pd.Categorical(
+    ["expanded" if x != "1" else "not expanded" for x in adata.obs["clonal_expansion"]]
+)
+```
+
+Again, expanded clonotypes are mostly among CD8+ T cells. There 
+are a few expanded regulatory T-cells as well. 
+
+```{python tags=c("hide_input")}
+sc.pl.umap(
+    adata,
+    color=["clonal_expansion", "cell_type", "CD8A"],
+    size=[10 if x != "1" else 3 for x in adata.obs["clonal_expansion"]],
+)
+```
+
+```{python tags=c("hide_input")}
+_ = multi_group_abundance(
+    adata, "clonal_expansion", ["cell_type", "hpv_status", "ir_status"], normalize=True
+)
+```
+
+### Clonal expansion by cluster
+
+```{python tags=c("hide_input")}
+ir.tl.group_abundance(adata, "cluster", "clonal_expansion", fraction=True)
+```
+
+```{python tags=c("hide_input")}
+for title, tmp_adata in (
+    ("all cells", adata),
+    ("CD4+ T cells", adata[adata.obs["cell_type"].isin(["T CD4+", "T reg."]), :]),
+    ("CD8+ T cells", adata[adata.obs["cell_type"] == "T CD8+", :]),
+):
+    fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+    _ = ir.pl.group_abundance(
+        tmp_adata,
+        "cluster",
+        "clonal_expansion",
+        normalize=True,
+        ax=ax,
+        sort=natural_sort(np.unique(tmp_adata.obs["cluster"])),
+    )
+    ax.set_title(f"Clonal expansion per cluster: {title}")
+```
+
+### Contingency tables and statistical tests (CD8+ T cells) 
+
+```{python include=FALSE}
+adata_cd8 = adata[(adata.obs["cell_type"] == "T CD8+"), :]
+```
+
+```{python tags=c("hide_input")}
+contingency_table = make_contingency_table(
+    adata_cd8,
+    "is_expanded",
+    "hpv_status",
+)
+contingency_table
+```
+
+```{python tags=c("hide_input")}
+_, p = stats.fisher_exact(contingency_table)
+print(f"Fisher's exact test of contingency table: p = {p:.4f}")
+```
+
+A simple differential gene expresion analysis of expanded vs. other CD8 T cells
+yields the following genes: 
+
+```{python}
+sc.tl.rank_genes_groups(adata_cd8, "is_expanded", method="wilcoxon", use_raw=False)
+```
+
+```{python}
+sc.pl.rank_genes_groups(adata_cd8, ["expanded"])
+```
+
+```{python tags=c("hide_input")}
+contingency_table = make_contingency_table(
+    adata_cd8[(adata_cd8.obs["ir_status"] != "nan"), :],
+    "is_expanded",
+    "ir_status",
+)
+contingency_table
+```
+
+```{python tags=c("hide_input")}
+_, p = stats.fisher_exact(contingency_table)
+print(f"Fisher's exact test of contingency table: p = {p:.4f}")
+```
+
+A simple differential gene expresion analysis of convergent vs. other CD8 T cells
+yields the following genes: 
+
+```{python include=FALSE}
+sc.tl.rank_genes_groups(adata_cd8, "is_convergent", method="wilcoxon", use_raw=False)
+```
+
+```{python tags=c("hide_input")}
+sc.pl.rank_genes_groups(adata_cd8, ["convergent"])
+```
+
+### export clonotype table
+
+```{python include=FALSE}
+for tmp_adata, filename in [
+    (adata, "clonotype_clusters.tsv"),
+    (adata_cd8, "clonotype_clusters_cd8.tsv"),
+]:
+    tmp_adata.obs.groupby(
+        [
+            "ct_cluster_aa_alignment",
+            "ct_cluster_aa_alignment_size",
+            "hpv_status",
+            "ir_status",
+            "is_convergent",
+            "is_expanded",
+            "is_public",
+            "clonal_expansion",
+            "patient",
+        ],
+        observed=True,
+    ).size().reset_index(name="cells_per_patient").to_csv(
+        os.path.join(output_dir, filename), sep="\t", index=False
+    )
+```
+
+## Shannon entropy
+
+```{python tags=c("hide_input")}
+plot_entropy_by_cell_type(adata, target_col="ct_cluster_aa_alignment")
+```
+
+```{python}
+export_alpha_diversity(adata, "ct_cluster_aa_alignment", out_dir=output_dir)
+```
+
+## Differential expression analysis of largest clonotype clusters
+
+
+```{python include=FALSE}
+from matplotlib.gridspec import GridSpec
+
+
+def network_plot_and_umap_expanded_clonotypes(
+    adata,
+    min_size,
+    umap_legend_loc="right margin",
+    network_panel_size=(3, 3),
+    figsize=(7, 7),
+    edges=False,
+    **kwargs
+):
+    fig = plt.figure(figsize=figsize)
+    gs = GridSpec(2, 2, figure=fig)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax3 = fig.add_subplot(gs[1, :])
+
+    ir.tl.clonotype_network(adata, min_size=min_size, sequence="aa", metric="alignment")
+    network_plot = ir.pl.clonotype_network(
+        adata,
+        color=["ct_cluster_aa_alignment", "patient"],
+        legend_loc=["on data", "right margin"],
+        edges=edges,
+        size=80,
+        legend_fontoutline=3,
+        ncols=3,
+        panel_size=network_panel_size,
+        ax=[ax1, ax2],
+        **kwargs
+    )
+    ct_ids = list(
+        set(
+            adata.obs.loc[
+                adata.obs["ct_cluster_aa_alignment_size"] >= min_size,
+                "ct_cluster_aa_alignment",
+            ].tolist()
+        )
+    )
+    umap_plot = sc.pl.umap(
+        adata,
+        color="ct_cluster_aa_alignment",
+        groups=ct_ids,
+        size=[40 if c in ct_ids else 5 for c in adata.obs["ct_cluster_aa_alignment"]],
+        legend_loc=umap_legend_loc,
+        ax=ax3,
+    )
+    plt.show()
+    return ct_ids
+```
+
+### Cutoff 20
+
+```{python tags=c("hide_input")}
+ct_ids_20 = network_plot_and_umap_expanded_clonotypes(adata, 20)
+```
+
+### Cutoff 10
+
+```{python tags=c("hide_input")}
+ct_ids_10 = network_plot_and_umap_expanded_clonotypes(
+    adata, 10, network_panel_size=(5, 5), figsize=(10, 10)
+)
+```
+
+### Cutoff 5
+
+```{python tags=c("hide_input")}
+ct_ids_5 = network_plot_and_umap_expanded_clonotypes(
+    adata, 5, network_panel_size=(5, 5), figsize=(10, 10), umap_legend_loc="none"
+)
+```
+
+### Differential gene expression analysis with cutoff 20
+(for smaller cutoffs, the differential gene expression analysis does not 
+work properly, as there will be to few cells per group)
+
+```{python include=FALSE}
+sc.tl.rank_genes_groups(
+    adata, "ct_cluster_aa_alignment", groups=ct_ids_20, method="wilcoxon", use_raw=False
+)
+```
+
+```{python tags=c("hide_input")}
+sc.pl.rank_genes_groups_matrixplot(
+    adata[adata.obs["ct_cluster_aa_alignment"].isin(ct_ids_20), :],
+    swap_axes=False,
+    n_genes=10,
+    standard_scale="var",
+    groups=ct_ids_20[:6],
+)
+sc.pl.rank_genes_groups_matrixplot(
+    adata[adata.obs["ct_cluster_aa_alignment"].isin(ct_ids_20), :],
+    swap_axes=False,
+    n_genes=10,
+    standard_scale="var",
+    groups=ct_ids_20[6:],
+)
+```
+
+### Clonotype clusters by leiden cluster (cutoff 10)
+
+```{python}
+cols1 = [
+    "ct_cluster_aa_alignment",
+    "cell_type",
+    "cluster",
+    "is_convergent",
+    "is_expanded",
+    "is_public",
+    "clonal_expansion",
+    "ct_cluster_aa_alignment_size",
+]
+cols2 = cols1 + [
+    "patient",
+    "ir_status",
+    "hpv_status",
+]
+```
+
+```{python}
+expr_cluster_ct_cluster_table = (
+    adata.obs.loc[
+        :,
+        cols1,
+    ]
+    .groupby(cols1, observed=True)
+    .size()
+    .reset_index(name="n_cells")
+)
+```
+
+```{python}
+expr_cluster_ct_cluster_table_by_patient = (
+    adata.obs.loc[
+        :,
+        cols2,
+    ]
+    .groupby(cols2, observed=True)
+    .size()
+    .reset_index(name="n_cells")
+)
+```
+
+```{python}
+expr_cluster_ct_cluster_table.to_csv(
+    os.path.join(output_dir, "expr_cluster_ct_cluster_table.tsv"), sep="\t", index=False
+)
+expr_cluster_ct_cluster_table_by_patient.to_csv(
+    os.path.join(output_dir, "expr_cluster_ct_cluster_table_by_patient.tsv"),
+    sep="\t",
+    index=False,
+)
+```
+
+```{python tags=c("hide_input")}
+ir.pl.group_abundance(
+    adata[adata.obs["ct_cluster_aa_alignment"].isin(ct_ids_10), :],
+    "ct_cluster_aa_alignment",
+    "cluster",
+    normalize=True,
+    figsize=(14, 4),
+)
+```
+
+### For CD4 T cells only
+
+```{python tags=c("hide_input")}
+adata_cd4 = adata[adata.obs["cell_type"].isin(["T CD4+", "T reg."]), :]
+sc.pl.umap(adata_cd4, color="cell_type")
+```
+
+#### Cutoff 10
+
+```{python tags=c("hide_input")}
+ct_ids_cd4_10 = network_plot_and_umap_expanded_clonotypes(adata_cd4, 10, edges=True)
+```
+
+#### Cutoff 3
+
+```{python tags=c("hide_input")}
+ct_ids_cd4_3 = network_plot_and_umap_expanded_clonotypes(
+    adata_cd4,
+    3,
+    network_panel_size=(7, 7),
+    figsize=(14, 14),
+    umap_legend_loc="none",
+    edges=True,
+)
+```
+
+Comparison of clonotype 4243 vs other Tregs
+
+```{python include=FALSE}
+adata.obs["ct_5243_comparison"] = "nan"
+adata.obs.loc[
+    (adata.obs["ct_cluster_aa_alignment"] == "5243")
+    & (adata.obs["cell_type"] == "T reg."),
+    "ct_5243_comparison",
+] = "ct_5243"
+adata.obs.loc[
+    (adata.obs["ct_cluster_aa_alignment"] != "5243")
+    & (adata.obs["cell_type"] == "T reg."),
+    "ct_5243_comparison",
+] = "other Tregs"
+```
+
+```{python include=FALSE}
+sc.tl.rank_genes_groups(
+    adata,
+    groupby="ct_5243_comparison",
+    groups=["ct_5243"],
+    reference="other Tregs",
+    use_raw=False,
+)
+```
+
+```{python tags=c("hide_input")}
+sc.pl.rank_genes_groups(adata, groups=["ct_5243"])
+```
+
+## Plot marker genes
+
+```{python}
+adata.obs["cell_type_expansion"] = [
+    f"{cell_type} {expanded}"
+    for cell_type, expanded in zip(adata.obs["cell_type"], adata.obs["is_expanded"])
+]
+```
+
+```{python}
+sc.pl.stacked_violin(
+    adata[adata.obs["cell_type"] != "T other", :],
+    var_names=["LTB", "BLK", "CXCL12", "CCL4"],
+    groupby="cell_type_expansion",
+    swap_axes=True,
+    cmap="YlOrRd",
+    save="expansion"
+)
+```
+
+### Store output
+
+```{python}
+adata.write_h5ad(f"{output_dir}/adata_tcr.h5ad")
+```
+
+```{python}
+
+```

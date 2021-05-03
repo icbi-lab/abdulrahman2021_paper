@@ -1,0 +1,177 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.10.0
+  kernelspec:
+    display_name: Python [conda env:.conda-vanderburg_scanpy]
+    language: python
+    name: conda-env-.conda-vanderburg_scanpy-py
+---
+
+```{python}
+import scanpy as sc
+from matplotlib import colors, rcParams
+import matplotlib.pyplot as plt
+import re
+
+sc.settings.set_figure_params(dpi_save=600, figsize=(4, 4), vector_friendly=True)
+```
+
+```{python tags=c("parameters")}
+input_file = "../results/05_prepare_adata_nk_t/adata.h5ad"
+```
+
+```{python}
+adata = sc.read_h5ad(input_file)
+```
+
+```{python}
+# https://stackoverflow.com/questions/4836710/is-there-a-built-in-function-for-string-natural-sort
+def natural_sort_key(s, _nsre=re.compile("([0-9]+)")):
+    return [int(text) if text.isdigit() else text.lower() for text in _nsre.split(s)]
+```
+
+```{python}
+# CD8 > CD4 > Treg > Tother > NK
+adata.obs["cluster"].cat.reorder_categories(
+    sorted(
+        adata.obs["cluster"].cat.categories,
+        key=lambda x: (
+            {"T CD8+": 0, "T CD4+": 1, "T reg.": 2, "T other": 3, "NK cell": 4}[
+                " ".join(x.split()[:2])
+            ],
+            natural_sort_key(x),
+        ),
+    ),
+    inplace=True,
+)
+```
+
+```{python}
+sc.pl.umap(
+    adata,
+    color=["LTB", "BLK", "CXCL12", "CCL4"],
+    ncols=4,
+    color_map="YlOrRd",
+    save="_ltb.pdf",
+    size=20,
+)
+```
+
+```{python}
+sc.pl.dotplot(
+    adata,
+    var_names=[
+        "CD3D",
+        "CD4",
+        "CD8A",
+        "FOXP3",
+        "NCAM1",
+        "GZMB",
+        "CCL4",
+        "CXCL13",
+        "XCL1",
+        "LMNA",
+        "GNLY",
+    ],
+    groupby="cluster",
+    swap_axes=True,
+    save="dotplot1.pdf",
+)
+```
+
+```{python}
+sc.pl.dotplot(
+    adata,
+    var_names=[
+        "ENTPD1",
+        "ITGAE",
+        "ITGA1",
+        "ALOX5AP",
+        "PDCD1",
+        "CXCL13",
+        "IFNG",
+        "GNLY",
+        "GZMB",
+        "PRF1",
+        "FOXP3",
+        "IL2RA",
+        "TOX",
+        "TOX2",
+        "ZNF683",
+        "TCF7",
+        "LAYN",
+    ],
+    groupby="cluster",
+    swap_axes=True,
+    save="dotplot_trm.pdf",
+)
+```
+
+```{python}
+sc.pl.dotplot(
+    adata,
+    var_names=[
+        "PDCD1",
+        "HAVCR2",
+        "LAG3",
+        "VSIR",
+        "TIGIT",
+        "CTLA4",
+        "LAIR1",
+        "CD274",
+        "CD80",
+        "BTLA",
+        "CD160",
+        "TIMD4",
+        "CD244",
+        "LILRB2",
+        "LILRB4",
+        "SIRPA",
+        "SIRPG",
+        "CD200R1",
+        "CEACAM1",
+        "CD96",
+        "PVRIG",
+        "TMIGD2",
+        "ADORA2A",
+    ],
+    groupby="cluster",
+    swap_axes=True,
+    save="dotplot_coinhib.pdf",
+)
+```
+
+```{python}
+sc.pl.dotplot(
+    adata,
+    var_names=[
+        "TNFSF14",
+        "TNFRSF9",
+        "ICOS",
+        "CD27",
+        "CD28",
+        "TNFRSF4",
+        "TNFRSF18",
+        "CD40LG",
+        "TNFRSF25",
+        "TNFRSF8",
+        "HAVCR1",
+        "TNFRSF14",
+        "CD226",
+        "SLAMF1",
+        "TNFSF9",
+    ],
+    groupby="cluster",
+    swap_axes=True,
+    save="dotplot_costim.pdf",
+)
+```
+
+```{python}
+
+```

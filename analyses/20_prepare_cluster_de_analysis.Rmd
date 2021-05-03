@@ -1,0 +1,67 @@
+---
+title: "Prepare cluster DE analysis" 
+output: html_document
+params:
+  input_obs: "../results/05_prepare_adata_nk_t/adata_obs.tsv"
+  input_counts: "tmp/norm_counts.tsv"
+  output_dir: "tmp/cluster_de"
+---
+
+```{r}
+library(conflicted)
+library(dplyr)
+# library(edgeR)
+library(readr)
+library(tidyr)
+library(tibble)
+dir.create(params$output_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+```{r}
+obs = read_tsv(params$input_obs)
+counts = read_tsv(params$input_counts)
+```
+```{r}
+counts = counts %>% as.data.frame() %>% column_to_rownames("gene_symbols") %>% as.matrix()
+```
+
+### all-against-all CD4 clusters
+
+```{r}
+#' make contrasts: one against all others.
+#' 
+#' @param design design matrix
+#' @param col_data colData or the SingleCellExperiment object. 
+#' @param column column name that is used for the contrasts. Also needs to be 
+#'    specified as first variable in the model.matrix.
+make_contrasts = function(design, col_data, column) {
+    n_clus = length(unique(col_data[[column]]))
+    upper_block = matrix(rep(-1/(n_clus-1), n_clus^2), ncol=n_clus)
+    diag(upper_block) = rep(1, n_clus)
+    lower_block = matrix(rep(0, (ncol(design)-n_clus) * n_clus), ncol=n_clus)
+    contrasts = rbind(upper_block, lower_block)
+    rownames(contrasts) = colnames(design)
+    colnames(contrasts) = colnames(design)[1:n_clus]
+    contrasts
+}
+```
+
+```{r}
+gen_all_against_all = function(mask, filename) {
+  tmp_obs = obs[mask, ]
+  tmp_obs$cluster = factor(tmp_obs$cluster)
+  tmp_counts = counts[, mask]
+  design = model.matrix(~0 + cluster + patient + n_genes + mt_frac, data=tmp_obs)
+  contrasts = make_contrasts(design, tmp_obs, "cluster")
+  save(tmp_obs, tmp_counts, design, contrasts, file=file.path(params$output_dir, filename), compress=FALSE)
+}
+```
+
+```{r}
+gen_all_against_all(obs$cell_type == "T CD4+", "all_against_all_cd4.rda")
+gen_all_against_all(obs$cell_type == "T CD8+", "all_against_all_cd8.rda")
+gen_all_against_all(obs$cell_type == "T reg.", "all_against_all_treg.rda")
+gen_all_against_all(obs$cell_type == "NK cell", "all_against_all_nk.rda")
+gen_all_against_all(obs$cell_type == "T other", "all_against_all_tother.rda")
+```
+

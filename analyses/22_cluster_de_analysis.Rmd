@@ -1,0 +1,83 @@
+---
+title: DE analysis of clusters
+params:
+  de_dir: "../results/21_run_de_analysis_clusters"
+---
+
+# Load data
+
+```{r message=FALSE, include=FALSE}
+library(conflicted)
+library(dplyr)
+conflict_prefer("filter", "dplyr")
+conflict_prefer("select", "dplyr")
+library(ggplot2)
+library(ggpubr)
+library(readr)
+library(tidyr)
+```
+
+
+```{r message=FALSE, include=FALSE}
+get_path = function(file_name) {file.path(params$de_dir, file_name)}
+
+de_results = lapply(c("cd4", "cd8", "nk", "tother", "treg"), function(id) {
+  read_tsv(get_path(paste0("all_against_all_", id, ".rda.res.tsv"))) %>% mutate(comparison=id)
+}) %>% bind_rows()
+```
+```{r include=FALSE}
+de_results = de_results %>% group_by(comparison, cluster) %>% 
+  mutate(rk = rank(-abs(logFC))) %>%
+  ungroup() %>%
+  arrange(comparison, cluster, rk)
+
+```
+
+```{r, include=FALSE}
+plot_de = function(de_results, comparison, title="DE") {
+  de_results %>%
+    filter(comparison==!!comparison) %>% 
+    filter(rk <= 30) %>%
+    ggplot(aes(x=logFC, y=rk)) +
+    geom_vline(xintercept =0, color="grey", linetype="dashed") +
+    geom_point(color="black", size=3.5) +
+    geom_point(aes(color=logFC), size=3) +
+    geom_text(aes(label=gene_symbol, x=-7), angle=0, size=3, nudge_x=1, hjust=0) +
+    scale_color_distiller(type="div", palette="RdYlBu") +
+    # geom_text(aes(label="label", x=5, y=10), data=de_genes_count, ha="right", size=8) +
+    coord_cartesian(xlim=c(-6, 5)) +
+    scale_y_reverse() +
+    ggtitle(title) +
+    theme_bw() +
+    theme(legend.position="none") + 
+    facet_wrap(~cluster, ncol=3)
+}
+
+```
+
+# DE analysis of clusters
+
+The following plots show the top 30 DE genes for each cluster. 
+**The clusters were compared within a cell type, e.g. all CD4 clusters were only compared to other CD4 clusters.**
+Otherwise, the lineage genes would dominate the results. 
+
+```{r fig.height=22, fig.width=12, echo=FALSE}
+plot_de(de_results, "cd4", "comparison of CD4+ T cell clusters")
+```
+
+```{r fig.height=22, fig.width=12, echo=FALSE}
+plot_de(de_results, "cd8", "comparison of CD8+ T cell clusters")
+```
+
+```{r fig.height=11, fig.width=12, echo=FALSE}
+plot_de(de_results, "nk", "comparison of NK cell clusters")
+```
+
+```{r fig.height=11, fig.width=12, echo=FALSE}
+plot_de(de_results, "treg", "comparison of regulatory T cell clusters")
+```
+
+```{r fig.height=6, fig.width=12, echo=FALSE}
+plot_de(de_results, "tother", "comparison of other T cell clusters")
+```
+

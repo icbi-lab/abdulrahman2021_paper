@@ -154,50 +154,54 @@ process p05_prepare_adata_t_nk {
         file 'input_adata.h5ad' from annotate_cell_types_adata
 
     output:
-        file "adata.h5ad" into prepare_adata_t_nk
+        file "adata.h5ad" into prepare_adata_t_nk, prepare_adata_t_nk_3, prepare_adata_t_nk_6
         file "${id}.html" into prepare_adata_t_nk_html
+        file "adata_obs.tsv" into prepare_adata_t_nk_obs,
+           prepare_adata_t_nk_obs_2
+        file "norm_counts.tsv" into prepare_adata_t_nk_norm_counts
     """
     execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
-       "-r input_file input_adata.h5ad -r output_file adata.h5ad -r table_dir tables -r cpus ${task.cpus} -r results_dir ."
+       "-r input_file input_adata.h5ad -r output_file adata.h5ad -r output_file_obs adata_obs.tsv -r output_file_norm_counts norm_counts.tsv -r table_dir tables -r cpus ${task.cpus} -r results_dir ."
     """
 }
 
-
-process p50_analysis_nkg2a {
-    def id = "50_analysis_nkg2a"
-    container "containers/vanderburg_edger.sif"
-    cpus 1
+process p20_prepare_cluster_de_analysis {
+    def id = "20_prepare_cluster_de_analysis"
+    container "containers/vanderburg_de_results.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     input:
         file 'notebook.Rmd' from Channel.fromPath("analyses/${id}.Rmd")
-        file 'input_adata.h5ad' from prepare_adata_t_nk
+        file 'obs.tsv' from prepare_adata_t_nk_obs_2
+        file 'counts.tsv' from prepare_adata_t_nk_norm_counts
 
     output:
-        file "${id}.zip" into nkg2a_figures
-        file "${id}.html" into nkg2a_html
-        file "*.rda" into nkg2a_de_analysis_rda
+        file "*.rda" into prepare_cluster_de_analysis_rda
+        file "${id}.html" into prepare_cluster_de_analysis_html
+
     """
-    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
-       "-r input_file input_adata.h5ad -r output_dir ."
-    # use python, zip not available in container
-    python -m zipfile -c ${id}.zip figures/*.pdf
+    reportsrender notebook.Rmd \
+        ${id}.html \
+        --cpus=${task.cpus} \
+        --params="input_obs=obs.tsv \
+                  input_counts=counts.tsv \
+                  output_dir='.'"
     """
 }
 
-process p51_run_de_nkg2a {
-    def id = "51_run_de_nkg2a"
+process p21_run_de_analysis_clusters {
+    def id = "21_run_de_analysis_clusters"
     container "containers/vanderburg_edger.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     cpus 6
 
     input:
-        file input_data from nkg2a_de_analysis_rda.flatten()
+        file input_data from prepare_cluster_de_analysis_rda.flatten()
 
     output:
-        file "${input_data}.res.tsv" into run_de_analysis_nkg2a_results
-        file "${input_data}.res.xlsx" into run_de_analysis_nkg2a_results_xlsx
+        file "${input_data}.res.tsv" into run_de_analysis_clusters_results
+        file "${input_data}.res.xlsx" into run_de_analysis_clusters_results_xlsx
 
     """
     export OPENBLAS_NUM_THREADS=${task.cpus} OMP_NUM_THREADS=${task.cpus} \
@@ -210,28 +214,72 @@ process p51_run_de_nkg2a {
     """
 }
 
-process p52_analysis_nkg2a_de {
-    def id = "52_analysis_nkg2a_de"
-    container "containers/vanderburg_de_results.sif"
+process p22_cluster_de_analysis {
+    def id = "22_cluster_de_analysis"
+    container "containers/vanderburg_edger.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     input:
         file 'notebook.Rmd' from Channel.fromPath("analyses/${id}.Rmd")
-        file "*" from run_de_analysis_nkg2a_results_xlsx.collect()
-        file "*" from run_de_analysis_nkg2a_results.collect()
+        file "*" from run_de_analysis_clusters_results_xlsx.collect()
+        file "*" from run_de_analysis_clusters_results.collect()
 
     output:
-        file "${id}.html" into nkg2a_de_analysis 
-        file "*.zip" into nkg2a_de_analysis_zip 
+        file "${id}.html" into cluster_de_analysis_html
+        file "*.zip" into cluster_de_analysis_zip
 
     """
+    # use python, zip not available in container
+    python -m zipfile -c ${id}.zip *.xlsx
     reportsrender notebook.Rmd \
         ${id}.html \
         --cpus=${task.cpus} \
         --params="de_dir='.'"
-    python -m zipfile -c ${id}.zip *.xlsx figures/*.pdf
     """
 }
+
+process p60_tcr_analysis {
+    def id = "60_tcr_analysis"
+    container "containers/vanderburg_scanpy.sif"
+    cpus 42
+    publishDir "$RES_DIR/$id", mode: params.publishDirMode
+
+    input:
+        file 'notebook.Rmd' from Channel.fromPath("analyses/${id}.Rmd")
+        file 'input_adata.h5ad' from prepare_adata_t_nk_3
+
+    output:
+        file "${id}.html" into tcr_analysis_html
+        file "${id}.zip" into tcr_analysis_tsv
+
+    """
+    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
+        "-r input_file input_adata.h5ad -r n_cpus ${task.cpus} -r output_dir . -r tcr_dir cellranger"
+    python -m zipfile -c ${id}.zip *.tsv
+    """
+}
+
+process p61_cluster_analysis {
+    def id = "61_cluster_analysis"
+    container "containers/vanderburg_scanpy.sif"
+    cpus 1
+    publishDir "$RES_DIR/$id", mode: params.publishDirMode
+
+    input:
+        file 'notebook.Rmd' from Channel.fromPath("analyses/${id}.Rmd")
+        file 'input_adata.h5ad' from prepare_adata_t_nk_6
+
+    output:
+        file "${id}.zip" into cluster_analysis_figures
+        file "${id}.html" into cluster_analysis_html
+    """
+    execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
+        "-r input_file input_adata.h5ad"
+    python -m zipfile -c ${id}.zip figures/*.pdf
+    """
+}
+
+
 
 
 process deploy {
@@ -245,10 +293,12 @@ process deploy {
             correct_data_html,
             annotate_cell_types_html,
             prepare_adata_t_nk_html,
-            nkg2a_html,
-            nkg2a_figures,
-            nkg2a_de_analysis,
-            nkg2a_de_analysis_zip
+            cluster_de_analysis_html,
+            cluster_de_analysis_zip,
+            tcr_analysis_html,
+            tcr_analysis_tsv,
+            cluster_analysis_html,
+            cluster_analysis_figures,
         ).collect()
 
     output:

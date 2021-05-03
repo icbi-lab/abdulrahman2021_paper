@@ -29,6 +29,8 @@ In this notebook, we will
 # get default parameters the papermill way.
 input_file = "../results/04_annotate_cell_types/adata.h5ad"
 output_file = "tmp/data.h5ad"
+output_file_obs = "tmp/adata_obs.tsv"
+output_file_norm_counts = "tmp/norm_counts.tsv"
 results_dir = "tmp"
 table_dir = "../tables"
 ```
@@ -302,4 +304,20 @@ sc.pl.umap(adata, color=["cluster", "cell_type"])
 
 ```{python}
 adata.write_h5ad(output_file, compression="lzf")
+adata.obs.to_csv(output_file_obs, sep="\t")
 ```
+
+
+## Write out the norm counts to text format, since loading into R from anndata failed. 
+
+```{python}
+norm_counts = pd.DataFrame(np.expm1(adata.X.T).todense())
+norm_counts.columns = adata.obs_names
+norm_counts["gene_symbols"] = adata.var_names
+norm_counts.set_index("gene_symbols", inplace=True)
+```
+
+```{python}
+norm_counts.to_csv(output_file_norm_counts, sep="\t", chunksize=100000)
+```
+
