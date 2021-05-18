@@ -54,7 +54,7 @@ adata.obs["cluster"].cat.reorder_categories(
 ```{python}
 sc.pl.umap(
     adata,
-    color=["LTB", "BLK", "CXCL12", "CCL4"],
+    color=["LTB", "BLK", "CXCL12", "CCL4", "XCL1", "LMNA"],
     ncols=4,
     color_map="YlOrRd",
     save="_ltb.pdf",
@@ -170,6 +170,63 @@ sc.pl.dotplot(
     swap_axes=True,
     save="dotplot_costim.pdf",
 )
+```
+
+```{python}
+def rename_cluster(name):
+    num_to_lower = {
+        "1": "₁",
+        "2": "₂",
+        "3": "₃",
+        "4": "₄",
+        "5": "₅",
+        "6": "₆",
+        "7": "₇",
+        "8": "₈",
+        "9": "₉",
+        "0": "₀",
+        "10": "₁₀",
+        "11": "₁₁",
+    }
+    name = (
+        name.replace("T CD8+", "CD8")
+        .replace("T CD4+", "CD4")
+        .replace("T reg.", "Treg")
+        .replace("T other", "Tother")
+        .replace("NK cell", "NK")
+    )
+    ct, num = name.split(" ")
+    return ct + num_to_lower[num]
+```
+
+```{python}
+adata.obs["cluster2"] = [rename_cluster(c) for c in adata.obs["cluster"]]
+```
+
+```{python}
+adata.strings_to_categoricals()
+```
+
+```{python}
+adata.obs["cluster2"].unique()
+```
+
+```{python}
+sc.set_figure_params(figsize=(8, 8))
+sc.pl.umap(
+    adata,
+    color="cluster2",
+    legend_loc="on data",
+    legend_fontoutline=3,
+    save="_leiden.pdf",
+    legend_fontweight=600,
+    size=30,
+    add_outline=True,
+)
+```
+
+```{python}
+adata.obs["cell_type"].value_counts()
 ```
 
 ```{python}

@@ -24,7 +24,7 @@ In this notebook, we will
 
 ```{python tags=c("parameters", "hide_input")}
 input_file = "../results/03_correct_data/adata.h5ad"
-output_file = "tmp/adata_cell_types.h5ad"
+output_dir = "tmp"
 table_dir = "../tables"
 ```
 
@@ -145,6 +145,10 @@ type_per_sample = (
 type_per_sample
 ```
 
+```{python}
+type_per_sample.to_csv(f"{output_dir}/cell_types_per_sample.csv")
+```
+
 ### Cell-type distribution per sample
 ```{python echo=FALSE}
 (
@@ -216,5 +220,5 @@ ax.set_ylabel("%NK cells")
 ## Save output
 
 ```{python}
-adata.write(output_file, compression="lzf")
+adata.write(f"{output_dir}/adata.h5ad", compression="lzf")
 ```

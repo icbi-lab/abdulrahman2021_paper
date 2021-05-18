@@ -130,10 +130,11 @@ process p04_annotate_cell_types {
     output:
         file "adata.h5ad" into annotate_cell_types_adata
         file "${id}.html" into annotate_cell_types_html
+        file "cell_types_per_sample.csv"
 
     """
     execute_notebook.sh ${id} ${task.cpus} notebook.Rmd \\
-       "-r input_file input_adata.h5ad -r output_file adata.h5ad -r table_dir tables"
+       "-r input_file input_adata.h5ad -r output_dir . -r table_dir tables"
     """
 
 }
