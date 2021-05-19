@@ -217,7 +217,7 @@ process p21_run_de_analysis_clusters {
 
 process p22_cluster_de_analysis {
     def id = "22_cluster_de_analysis"
-    container "containers/vanderburg_edger.sif"
+    container "containers/vanderburg_de_results.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     input:

@@ -12,7 +12,7 @@ library(dplyr)
 conflict_prefer("filter", "dplyr")
 conflict_prefer("select", "dplyr")
 library(ggplot2)
-library(ggpubr)
+# library(ggpubr)
 library(readr)
 library(tidyr)
 ```
