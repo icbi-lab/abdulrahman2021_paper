@@ -6,7 +6,7 @@ RES_DIR = params.resultsDir
 process p01_process_data {
     def id = "01_process_counts"
     cpus = 16
-    container "containers/vanderburg_scanpy.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_scanpy.sif"
     cache 'lenient'
     publishDir "$RES_DIR/01_process_data", mode: params.publishDirMode
 
@@ -31,7 +31,7 @@ process p01_process_data {
 
 process p02_filter_data {
     def id = "02_filter_data"
-    container "containers/vanderburg_scanpy.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_scanpy.sif"
     cpus = 16
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
@@ -89,7 +89,7 @@ process p02_filter_data {
 
 process p03_normalize {
     def id = "03_normalize"
-    container "containers/vanderburg_scanpy.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_scanpy.sif"
     cpus = 16
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
@@ -115,7 +115,7 @@ process p03_normalize {
 
 process p04_annotate_cell_types {
     def id = "04_annotate_cell_types"
-    container "containers/vanderburg_scanpy.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_scanpy.sif"
     cpus = 16
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
@@ -142,7 +142,7 @@ process p04_annotate_cell_types {
 
 process p05_prepare_adata_t_nk {
     def id = "05_prepare_adata_nk_t"
-    container "containers/vanderburg_scanpy.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_scanpy.sif"
     cpus 1
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
@@ -168,7 +168,7 @@ process p05_prepare_adata_t_nk {
 
 process p20_prepare_cluster_de_analysis {
     def id = "20_prepare_cluster_de_analysis"
-    container "containers/vanderburg_de_results.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_de_results.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     input:
@@ -192,7 +192,7 @@ process p20_prepare_cluster_de_analysis {
 
 process p21_run_de_analysis_clusters {
     def id = "21_run_de_analysis_clusters"
-    container "containers/vanderburg_edger.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_edger.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     cpus 6
@@ -217,7 +217,7 @@ process p21_run_de_analysis_clusters {
 
 process p22_cluster_de_analysis {
     def id = "22_cluster_de_analysis"
-    container "containers/vanderburg_de_results.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_de_results.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     input:
@@ -241,7 +241,7 @@ process p22_cluster_de_analysis {
 
 process p60_tcr_analysis {
     def id = "60_tcr_analysis"
-    container "containers/vanderburg_scanpy.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_scanpy.sif"
     cpus 42
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
@@ -262,7 +262,7 @@ process p60_tcr_analysis {
 
 process p61_cluster_analysis {
     def id = "61_cluster_analysis"
-    container "containers/vanderburg_scanpy.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_scanpy.sif"
     cpus 1
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
