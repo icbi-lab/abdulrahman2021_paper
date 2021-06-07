@@ -9,8 +9,8 @@
     - [result tables](22_cluster_de_analysis.zip)
  * [scTCR-seq analysis](60_tcr_analysis.html)
     - [result tables](60_tcr_analysis.zip)
- * [plots](61_cluster_analysis.html)
-    - [result figures](61_cluster_analysis.zip)
+ * [scRNA-seq: UMAPs and dotplots](61_cluster_analysis.html)
+    - [high quality figures](61_cluster_analysis.zip)
 
 ## Source code
 A reproducible Nextflow pipeline generating
