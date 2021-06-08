@@ -168,7 +168,7 @@ process p05_prepare_adata_t_nk {
 
 process p20_prepare_cluster_de_analysis {
     def id = "20_prepare_cluster_de_analysis"
-    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_de_results.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_de_results.v2.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     input:
@@ -217,7 +217,7 @@ process p21_run_de_analysis_clusters {
 
 process p22_cluster_de_analysis {
     def id = "22_cluster_de_analysis"
-    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_de_results.sif"
+    container "https://github.com/icbi-lab/abdulrahman2021_paper/releases/download/containers-0.1.0/vanderburg_de_results.v2.sif"
     publishDir "$RES_DIR/$id", mode: params.publishDirMode
 
     input:

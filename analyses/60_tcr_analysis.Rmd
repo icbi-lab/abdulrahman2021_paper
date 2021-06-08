@@ -17,8 +17,6 @@ jupyter:
 # %autoreload 2
 import sys
 
-sys.path.insert(0, "/home/sturm/projects/2020/scirpy/")
-
 from glob import glob
 from multiprocessing import Pool
 import numpy as np

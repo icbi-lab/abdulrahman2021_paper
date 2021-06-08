@@ -26,7 +26,7 @@ de_results = lapply(c("cd4", "cd8", "nk", "tother", "treg"), function(id) {
 }) %>% bind_rows()
 ```
 ```{r include=FALSE}
-de_results = de_results %>% group_by(comparison, cluster) %>% 
+de_results = de_results %>% group_by(comparison, cluster) %>%
   mutate(rk = rank(-abs(logFC))) %>%
   ungroup() %>%
   arrange(comparison, cluster, rk)
@@ -36,20 +36,20 @@ de_results = de_results %>% group_by(comparison, cluster) %>%
 ```{r, include=FALSE}
 plot_de = function(de_results, comparison, title="DE") {
   de_results %>%
-    filter(comparison==!!comparison) %>% 
+    filter(comparison==!!comparison) %>%
     filter(rk <= 30) %>%
     ggplot(aes(x=logFC, y=rk)) +
     geom_vline(xintercept =0, color="grey", linetype="dashed") +
     geom_point(color="black", size=3.5) +
     geom_point(aes(color=logFC), size=3) +
-    geom_text(aes(label=gene_symbol, x=-7), angle=0, size=3, nudge_x=1, hjust=0) +
+    geom_text(aes(label=gene_symbol, x=-7), angle=0, size=3, nudge_x=1, hjust=0, family = "sans") +
     scale_color_distiller(type="div", palette="RdYlBu") +
     # geom_text(aes(label="label", x=5, y=10), data=de_genes_count, ha="right", size=8) +
     coord_cartesian(xlim=c(-6, 5)) +
     scale_y_reverse() +
     ggtitle(title) +
     theme_bw() +
-    theme(legend.position="none") + 
+    theme(legend.position="none") +
     facet_wrap(~cluster, ncol=3)
 }
 
@@ -57,9 +57,9 @@ plot_de = function(de_results, comparison, title="DE") {
 
 # DE analysis of clusters
 
-The following plots show the top 30 DE genes for each cluster. 
+The following plots show the top 30 DE genes for each cluster.
 **The clusters were compared within a cell type, e.g. all CD4 clusters were only compared to other CD4 clusters.**
-Otherwise, the lineage genes would dominate the results. 
+Otherwise, the lineage genes would dominate the results.
 
 ```{r fig.height=22, fig.width=12, echo=FALSE}
 plot_de(de_results, "cd4", "comparison of CD4+ T cell clusters")
