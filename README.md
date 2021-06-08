@@ -27,7 +27,7 @@ Prerequisites:
 
 Clone the repository:
 ```bash
-git clone https://github.com/icbi-lab/borst2021.git
+git clone https://github.com/icbi-lab/abdulrahman2021_paper.git
 ```
 
 Start the pipeline:
