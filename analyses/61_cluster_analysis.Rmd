@@ -5,7 +5,7 @@ jupyter:
       extension: .Rmd
       format_name: rmarkdown
       format_version: '1.2'
-      jupytext_version: 1.10.0
+      jupytext_version: 1.11.2
   kernelspec:
     display_name: Python [conda env:.conda-vanderburg_scanpy]
     language: python
@@ -74,13 +74,32 @@ sc.pl.dotplot(
         "GZMB",
         "CCL4",
         "CXCL13",
-        "XCL1",
-        "LMNA",
         "GNLY",
     ],
     groupby="cluster",
     swap_axes=True,
     save="dotplot1.pdf",
+)
+```
+
+```{python}
+sc.pl.dotplot(
+    adata,
+    var_names=[
+        "CD3D",
+        "CD4",
+        "CD8A",
+        "FOXP3",
+        "NCAM1",
+        "GZMB",
+        "CCL4",
+        "CXCL13",
+        "GNLY",
+        "LTB"
+    ],
+    groupby="cluster",
+    swap_axes=True,
+    save="dotplot1_with_ltb.pdf",
 )
 ```
 
